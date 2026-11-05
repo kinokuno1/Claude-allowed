@@ -47,7 +47,20 @@
 
 Simplified circuit: one 3-input OR (X), one 2-input OR feeding a 2-input AND with D (Y), one 4-input OR (Z).
 
-## Building it in Multisim 14
+## Multisim files
+
+| File | Content |
+|------|---------|
+| `circuit_original.ms14` | the circuit from the exercise (preview: `apercu/circuit_original.png`) |
+| `circuit_simplifie.ms14` | the Karnaugh-simplified circuit (preview: `apercu/circuit_simplifie.png`) |
+
+- Inputs A, B, C, D are *Interactive Digital Constants* (U1–U4): press **A**, **B**, **C** or **D** during the simulation to toggle them. They all start at 0.
+- Outputs are digital probes: **X1 = X**, **X2 = Y**, **X3 = Z**.
+- Multisim has no plain buffer in the TIL library, so each buffer is an **OR2 with both inputs tied together** (U5, U7, U10), which outputs the same value as its input.
+- The files were generated without Multisim. Real Multisim 14 files were used as templates for the components, and the result was checked automatically: valid XML, all internal references resolve, the wiring matches the pins, and simulating the stored netlist gives the truth table above. The files have **not been opened in Multisim itself yet**.
+- `tools/` holds the generator (decoder/encoder for the `.ms14` container plus the schematic builder).
+
+## Building it in Multisim 14 by hand
 
 1. 4 × `SPDT` switches (Basic ▸ Switch), keys A/B/C/D, between VCC (5 V) and GND, for inputs A–D.
 2. Gates from **Misc Digital ▸ TIL**: `OR2`, `OR3`, `OR4`, `AND2`, `AND3`, `BUFFER`; or 74LS32 / 74LS08 / 74LS4072 equivalents.
