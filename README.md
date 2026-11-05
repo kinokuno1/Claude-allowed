@@ -1,30 +1,55 @@
-# Ma Moyenne
+# Logic circuit – analysis (inputs A, B, C, D → outputs X, Y, Z)
 
-Application Android pour calculer la moyenne de ses notes selon l'échelle suisse (1 à 6) et le barème fédéral.
+> Note: the triangle symbols in the drawing are **buffers** (no inversion bubble), so they pass their input through unchanged.
 
-**Télécharger l'APK :** [`release/MaMoyenne.apk`](release/MaMoyenne.apk)
+## Netlist (original circuit)
 
-## Fonctions
+| Gate | Inputs | Output |
+|------|--------|--------|
+| BUF1 | C | C |
+| OR1  | BUF1, B | N1 = B + C |
+| BUF2 | N1 | N1 |
+| OR_X | A, BUF2 | **X** |
+| OR2  | A, D | N2 = A + D |
+| BUF3 | C | C |
+| OR3  | BUF3, D | N3 = C + D |
+| OR4 (4 in) | N2, N3, N3, B | N4 = A + B + C + D |
+| AND1 | N1, N1, N4 | N5 = (B + C)·(A + B + C + D) |
+| AND2 (Y) | D, D, N5 | **Y** |
+| OR_Z | N5, N4 | **Z** |
 
-- Branches avec coefficient, notes avec pondération (ex. un examen qui compte double).
-- Saisie d'une note directement, ou en points avec le barème fédéral :
-  **note = points obtenus ÷ points max × 5 + 1**.
-- Moyenne de chaque branche, arrondie au demi-point par défaut (réglable : 0.5 / 0.25 / 0.1 / aucun).
-- Moyenne générale = moyenne des branches arrondies, pondérée par les coefficients.
-- Points positifs / négatifs et contrôle de la compensation (points positifs ≥ 2 × points négatifs).
-- « Note nécessaire » : quelle note viser au prochain test pour atteindre un objectif.
-- Données enregistrées sur le téléphone uniquement.
+## Truth table
 
-## Installation
+| A | B | C | D | X | Y | Z |
+|---|---|---|---|---|---|---|
+| 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 0 | 0 | 0 | 1 | 0 | 0 | 1 |
+| 0 | 0 | 1 | 0 | 1 | 0 | 1 |
+| 0 | 0 | 1 | 1 | 1 | 1 | 1 |
+| 0 | 1 | 0 | 0 | 1 | 0 | 1 |
+| 0 | 1 | 0 | 1 | 1 | 1 | 1 |
+| 0 | 1 | 1 | 0 | 1 | 0 | 1 |
+| 0 | 1 | 1 | 1 | 1 | 1 | 1 |
+| 1 | 0 | 0 | 0 | 1 | 0 | 1 |
+| 1 | 0 | 0 | 1 | 1 | 0 | 1 |
+| 1 | 0 | 1 | 0 | 1 | 0 | 1 |
+| 1 | 0 | 1 | 1 | 1 | 1 | 1 |
+| 1 | 1 | 0 | 0 | 1 | 0 | 1 |
+| 1 | 1 | 0 | 1 | 1 | 1 | 1 |
+| 1 | 1 | 1 | 0 | 1 | 0 | 1 |
+| 1 | 1 | 1 | 1 | 1 | 1 | 1 |
 
-1. Ouvre `release/MaMoyenne.apk` depuis ton téléphone et télécharge-le.
-2. Autorise l'installation d'applications de sources inconnues si Android le demande.
-3. Installe.
+## Simplified equations (Karnaugh)
 
-## Compiler
+- **X = A + B + C**   (only 0 when A = B = C = 0)
+- **Y = B·D + C·D = D·(B + C)**
+- **Z = A + B + C + D**   (only 0 when all inputs are 0)
 
-```
-./gradlew test assembleRelease
-```
+Simplified circuit: one 3-input OR (X), one 2-input OR feeding a 2-input AND with D (Y), one 4-input OR (Z).
 
-L'APK est produit dans `app/build/outputs/apk/release/`. Le workflow GitHub Actions `Build APK` le construit aussi à chaque push.
+## Building it in Multisim 14
+
+1. 4 × `SPDT` switches (Basic ▸ Switch), keys A/B/C/D, between VCC (5 V) and GND, for inputs A–D.
+2. Gates from **Misc Digital ▸ TIL**: `OR2`, `OR3`, `OR4`, `AND2`, `AND3`, `BUFFER`; or 74LS32 / 74LS08 / 74LS4072 equivalents.
+3. 3 × `PROBE` (Indicators) on X, Y, Z.
+4. Wire the gates following the netlist above, run the simulation and compare it with the truth table.
