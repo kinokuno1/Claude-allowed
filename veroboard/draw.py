@@ -36,7 +36,7 @@ for u, (lc, rc) in L.IC.items():
         dx = 10 if c == lc else -10
         o.append('<text x="%g" y="%g" font-size="9" fill="#fff" text-anchor="%s" dominant-baseline="middle">%d</text>' % (x + dx, y, 'start' if dx > 0 else 'end', n))
 # headers (right edge) and lugs
-for grp in (['+', 'P0', 'P1', 'P2', 'P3'], ['S0', 'S1', 'S2', 'S3', '-']):
+for grp in (['+', 'P0', 'P1', 'P2', 'P3'], ['GF', 'S0', 'S1', 'S2', 'S3', '-']):
     rs = [L.R[L.header[g]] for g in grp]; x, y1 = xy(min(rs), L.HCOL); _, y2 = xy(max(rs), L.HCOL)
     o.append('<rect x="%g" y="%g" width="%g" height="%g" fill="#222" rx="2"/>' % (x - 11, y1 - 13, 22, y2 - y1 + 26))
     for g in grp:

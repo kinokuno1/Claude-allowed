@@ -13,7 +13,7 @@ IC_ROWS = range(R['H'], R['N'] + 1)
 CUT_COLS = [10, 17, 24, 31]                    # cuts in every IC row
 cuts = {(r, c) for r in IC_ROWS for c in CUT_COLS}
 HCOL = 37
-header = {'+': 'D', 'P0': 'E', 'P1': 'F', 'P2': 'G', 'P3': 'H', 'S0': 'K', 'S1': 'L', 'S2': 'M', 'S3': 'N', '-': 'O'}
+header = {'+': 'D', 'P0': 'E', 'P1': 'F', 'P2': 'G', 'P3': 'H', 'GF': 'J', 'S0': 'K', 'S1': 'L', 'S2': 'M', 'S3': 'N', '-': 'O'}
 terminals_lug = {'Vcc': (R['D'], 1), 'Gnd': (R['O'], 1)}
 # ---- netlist (from the schematic) ----
 NETS = {
