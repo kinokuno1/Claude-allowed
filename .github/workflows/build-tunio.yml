@@ -1,0 +1,51 @@
+name: Build Tunio APK
+
+on:
+  push:
+    paths:
+      - 'tunio/**'
+      - '.github/workflows/build-tunio.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tunio
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Test and build
+        run: ./gradlew --no-daemon test assembleRelease
+      - name: Rename APKs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk dist/Tunio-arm64.apk
+          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk dist/Tunio-arm32.apk
+          cp app/build/outputs/apk/release/app-x86_64-release.apk dist/Tunio-x86_64.apk
+          cp app/build/outputs/apk/release/app-universal-release.apk dist/Tunio-universal.apk
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tunio-apk
+          path: tunio/dist/*.apk
+      - name: Publish download link (GitHub release "tunio-latest")
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tunio-latest
+          name: Tunio (latest build)
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Latest Tunio build from commit ${{ github.sha }}.
+            On a phone, download **Tunio-arm64.apk** (almost every phone since 2017). If it won't install, use Tunio-universal.apk.
+          files: tunio/dist/*.apk

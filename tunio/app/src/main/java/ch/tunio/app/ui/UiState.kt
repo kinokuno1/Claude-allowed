@@ -1,0 +1,87 @@
+package ch.tunio.app.ui
+
+import ch.tunio.app.data.Source
+import ch.tunio.app.data.Track
+import ch.tunio.app.data.TrackList
+import ch.tunio.app.engine.Engine
+import ch.tunio.app.engine.Parsing
+import ch.tunio.app.player.shortError
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+
+fun isLink(text: String): Boolean = Parsing.extractUrl(text) != null || Parsing.looksLikeUrl(text)
+
+sealed interface Route {
+    data object Home : Route
+    data object Search : Route
+    data object Library : Route
+    data object Liked : Route
+    data object Downloads : Route
+    data object Settings : Route
+    data class PlaylistPage(val id: String) : Route
+}
+
+/** App-wide UI state that must survive switching tabs. */
+object Ui {
+    val stack = MutableStateFlow<List<Route>>(listOf(Route.Home))
+    val playerOpen = MutableStateFlow(false)
+    /** Tracks waiting for the "Add to playlist" dialog. */
+    val addToPlaylist = MutableStateFlow<List<Track>?>(null)
+
+    fun tab(r: Route) { stack.value = listOf(r) }
+    fun push(r: Route) { stack.value = stack.value + r }
+    fun back(): Boolean {
+        if (playerOpen.value) { playerOpen.value = false; return true }
+        if (stack.value.size > 1) { stack.value = stack.value.dropLast(1); return true }
+        if (stack.value.last() != Route.Home) { stack.value = listOf(Route.Home); return true }
+        return false
+    }
+}
+
+object SearchModel {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var job: Job? = null
+    private var token = 0
+
+    val query = MutableStateFlow("")
+    val source = MutableStateFlow(Source.YOUTUBE)
+    val loading = MutableStateFlow(false)
+    val result = MutableStateFlow<TrackList?>(null)
+    val error = MutableStateFlow<String?>(null)
+    val fromLink = MutableStateFlow(false)
+
+    fun submit() {
+        val q = query.value.trim()
+        if (q.isEmpty()) return
+        job?.cancel()
+        val myToken = ++token
+        loading.value = true
+        error.value = null
+        result.value = null
+        job = scope.launch {
+            try {
+                val link = Parsing.extractUrl(q) ?: q.takeIf { Parsing.looksLikeUrl(it) }?.let { "https://$it" }
+                fromLink.value = link != null
+                result.value = if (link != null) Engine.resolveLink(link) else TrackList(null, Engine.search(source.value, q))
+                if (result.value?.tracks.isNullOrEmpty()) error.value = "Nothing found."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                error.value = shortError(e)
+            } finally {
+                if (myToken == token) loading.value = false
+            }
+        }
+    }
+
+    fun openLink(text: String) {
+        query.value = Parsing.extractUrl(text) ?: text
+        Ui.tab(Route.Search)
+        submit()
+    }
+}
