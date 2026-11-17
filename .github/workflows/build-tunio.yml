@@ -22,7 +22,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      # The runner image already ships the Android SDK (ANDROID_HOME).
       - name: Test and build
         run: ./gradlew --no-daemon test assembleRelease
       - name: Rename APKs

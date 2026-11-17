@@ -8,30 +8,41 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import ch.tunio.app.data.Library
 import ch.tunio.app.data.Track
 import ch.tunio.app.engine.AudioStore
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 enum class RepeatMode { OFF, ALL, ONE }
 
-/** Owns the play queue. ExoPlayer only ever holds the current song as a local file. */
+/** Thrown on ExoPlayer's loading thread when a song can't be fetched; never retried. */
+class FetchException(message: String, cause: Throwable?) : IOException(message, cause)
+
+/**
+ * The queue lives in ExoPlayer as a normal playlist. Each item has a `tunio://track/<id>` URI that a
+ * [ResolvingDataSource] turns into a local file, downloading it first if needed. That keeps ExoPlayer
+ * "buffering" (not stopped) while the next song is fetched, so background playback keeps running.
+ */
+@UnstableApi
 object PlayerController {
     lateinit var exo: ExoPlayer
         private set
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var loadJob: Job? = null
-    private var prefetchJob: Job? = null
-    private var originalQueue: List<Track> = emptyList()
+    private val known = ConcurrentHashMap<String, Track>()
+    private var unshuffled: List<Track>? = null
     private var failuresInARow = 0
 
     val queue = MutableStateFlow<List<Track>>(emptyList())
@@ -45,176 +56,213 @@ object PlayerController {
     val current: Track? get() = queue.value.getOrNull(index.value)
 
     fun init(context: Context) {
+        val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(context), ResolvingDataSource.Resolver { spec -> resolve(spec) })
+        val noRetryForFetch = object : DefaultLoadErrorHandlingPolicy() {
+            override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+                if (generateSequence(info.exception as Throwable?) { it.cause }.any { it is FetchException }) C.TIME_UNSET
+                else super.getRetryDelayMsFor(info)
+        }
         exo = ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(resolving).setLoadErrorHandlingPolicy(noRetryForFetch))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
                 true,
             )
             .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_LOCAL)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying.value = playing
+                if (playing) failuresInARow = 0
             }
 
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) next(auto = true)
+            override fun onPlaybackStateChanged(state: Int) = refreshState()
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = refreshState()
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) = syncQueue()
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                syncQueue()
+                current?.let { Library.addRecent(it) }
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // A cached file can be corrupt (e.g. app killed mid-download): drop it and move on.
-                current?.let { t -> AudioStore.localFile(t)?.takeIf { it.parentFile == AudioStore.cacheDir }?.delete() }
-                messages.tryEmit("Playback error: ${error.errorCodeName}")
-                next(auto = true)
+                val fetch = generateSequence(error as Throwable?) { it.cause }.firstOrNull { it is FetchException }
+                val t = current
+                if (fetch == null && t != null) {
+                    // Probably a broken cached file (e.g. app killed mid-download): delete it so it is fetched again.
+                    AudioStore.localFile(t)?.takeIf { it.parentFile == AudioStore.cacheDir }?.delete()
+                }
+                messages.tryEmit("Couldn't play \"${t?.title ?: "song"}\": ${fetch?.message ?: error.errorCodeName}")
+                failuresInARow++
+                if (failuresInARow < 3 && exo.hasNextMediaItem()) {
+                    exo.seekToNextMediaItem()
+                    exo.prepare()
+                    exo.play()
+                }
+                refreshState()
             }
         })
     }
 
+    /** Runs on ExoPlayer's loading thread: turns tunio://track/<id> into a local file (blocking). */
+    private fun resolve(spec: DataSpec): DataSpec {
+        val uri = spec.uri
+        if (uri.scheme != "tunio") return spec
+        val id = uri.lastPathSegment ?: throw FetchException("Bad song id", null)
+        val track = known[id] ?: Library.track(id) ?: throw FetchException("Unknown song", null)
+        val file = try {
+            runBlocking { AudioStore.ensure(track) }
+        } catch (e: InterruptedException) {
+            throw java.io.InterruptedIOException("Cancelled")
+        } catch (e: Throwable) {
+            throw FetchException(shortError(e), e)
+        }
+        return spec.withUri(Uri.fromFile(file))
+    }
+
+    private fun refreshState() {
+        preparing.value = exo.playWhenReady && exo.playbackState == Player.STATE_BUFFERING
+    }
+
+    private fun syncQueue() {
+        queue.value = (0 until exo.mediaItemCount).mapNotNull { known[exo.getMediaItemAt(it).mediaId] }
+        index.value = if (exo.mediaItemCount == 0) -1 else exo.currentMediaItemIndex
+        refreshState()
+    }
+
+    private fun item(t: Track): MediaItem {
+        known[t.id] = t
+        return MediaItem.Builder()
+            .setMediaId(t.id)
+            .setUri(Uri.parse("tunio://track/${t.id}"))
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(t.title)
+                    .setArtist(t.artist)
+                    .setArtworkUri(t.thumbnail?.let { Uri.parse(it) })
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .build(),
+            )
+            .build()
+    }
+
     fun play(tracks: List<Track>, start: Int = 0, shuffled: Boolean = shuffle.value) {
         if (tracks.isEmpty()) return
-        originalQueue = tracks
+        val s = start.coerceIn(tracks.indices)
         shuffle.value = shuffled
-        val first = tracks[start.coerceIn(tracks.indices)]
-        queue.value = if (shuffled) listOf(first) + (tracks - first).shuffled() else tracks
-        index.value = if (shuffled) 0 else start.coerceIn(tracks.indices)
+        val list: List<Track>
+        val startIndex: Int
+        if (shuffled) {
+            unshuffled = tracks
+            val first = tracks[s]
+            list = listOf(first) + tracks.filterIndexed { i, _ -> i != s }.shuffled()
+            startIndex = 0
+        } else {
+            unshuffled = null
+            list = tracks
+            startIndex = s
+        }
         failuresInARow = 0
-        load()
+        exo.setMediaItems(list.map(::item), startIndex, 0L)
+        exo.prepare()
+        exo.play()
     }
 
     fun playNext(track: Track) {
-        if (current == null) return play(listOf(track))
-        val q = queue.value.toMutableList()
-        q.add(index.value + 1, track)
-        queue.value = q
+        if (exo.mediaItemCount == 0) return play(listOf(track))
+        exo.addMediaItem(exo.currentMediaItemIndex + 1, item(track))
         messages.tryEmit("Plays next: ${track.title}")
     }
 
     fun addToQueue(track: Track) {
-        if (current == null) return play(listOf(track))
-        queue.value = queue.value + track
+        if (exo.mediaItemCount == 0) return play(listOf(track))
+        exo.addMediaItem(item(track))
         messages.tryEmit("Added to queue: ${track.title}")
     }
 
     fun removeFromQueue(i: Int) {
-        if (i == index.value || i !in queue.value.indices) return
-        queue.value = queue.value.toMutableList().also { it.removeAt(i) }
-        if (i < index.value) index.value -= 1
+        if (i == exo.currentMediaItemIndex || i !in 0 until exo.mediaItemCount) return
+        exo.removeMediaItem(i)
     }
 
     fun jumpTo(i: Int) {
-        if (i !in queue.value.indices) return
-        index.value = i
-        load()
+        if (i !in 0 until exo.mediaItemCount) return
+        exo.seekToDefaultPosition(i)
+        if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
+        exo.play()
     }
 
     fun togglePlay() {
-        if (current == null) return
-        if (preparing.value) return
-        if (exo.playbackState == Player.STATE_IDLE || exo.mediaItemCount == 0) return load()
-        if (exo.playbackState == Player.STATE_ENDED) exo.seekTo(0)
-        if (exo.isPlaying) exo.pause() else exo.play()
+        if (exo.mediaItemCount == 0) return
+        when {
+            exo.playbackState == Player.STATE_IDLE -> { exo.prepare(); exo.play() }
+            exo.playbackState == Player.STATE_ENDED -> { exo.seekToDefaultPosition(0); exo.play() }
+            exo.playWhenReady -> exo.pause()
+            else -> exo.play()
+        }
     }
 
     fun seekTo(ms: Long) = exo.seekTo(ms)
 
-    fun next(auto: Boolean = false) {
-        val q = queue.value
-        if (q.isEmpty()) return
-        when {
-            auto && repeat.value == RepeatMode.ONE -> { exo.seekTo(0); exo.play() }
-            index.value + 1 < q.size -> { index.value += 1; load() }
-            repeat.value == RepeatMode.ALL -> { index.value = 0; load() }
-            auto -> { exo.pause(); exo.seekTo(0) }
-            else -> Unit
-        }
+    fun next() {
+        if (exo.hasNextMediaItem()) exo.seekToNextMediaItem()
+        else if (exo.mediaItemCount > 0) exo.seekToDefaultPosition(0)
+        if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
+        exo.play()
     }
 
     fun previous() {
-        if (exo.currentPosition > 3000 || index.value <= 0) {
-            exo.seekTo(0)
-            return
-        }
-        index.value -= 1
-        load()
+        if (exo.currentPosition > 3000 || !exo.hasPreviousMediaItem()) exo.seekTo(0)
+        else exo.seekToPreviousMediaItem()
+        if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
     }
 
+    /** Shuffles the songs after the current one (or restores the original order). */
     fun toggleShuffle() {
-        val cur = current
         val on = !shuffle.value
         shuffle.value = on
-        if (cur == null) return
+        val n = exo.mediaItemCount
+        if (n < 2) return
+        val cur = exo.currentMediaItemIndex
+        val items = (0 until n).map { exo.getMediaItemAt(it) }
+        val newOrder: List<MediaItem>
+        val newIndex: Int
         if (on) {
-            originalQueue = queue.value
-            val rest = queue.value.drop(index.value + 1).shuffled()
-            queue.value = queue.value.take(index.value + 1) + rest
+            unshuffled = items.mapNotNull { known[it.mediaId] }
+            newOrder = items.take(cur + 1) + items.drop(cur + 1).shuffled()
+            newIndex = cur
         } else {
-            val i = originalQueue.indexOfFirst { it.id == cur.id }
-            if (i >= 0) {
-                queue.value = originalQueue
-                index.value = i
-            }
+            val original = unshuffled?.map(::item) ?: return
+            val curId = items[cur].mediaId
+            newIndex = original.indexOfFirst { it.mediaId == curId }.takeIf { it >= 0 } ?: return
+            newOrder = original
         }
+        // Replace everything except the playing item so playback isn't interrupted.
+        exo.removeMediaItems(cur + 1, n)
+        exo.removeMediaItems(0, cur)
+        exo.addMediaItems(0, newOrder.subList(0, newIndex))
+        exo.addMediaItems(newOrder.subList(newIndex + 1, newOrder.size))
     }
 
     fun cycleRepeat() {
-        repeat.value = when (repeat.value) {
+        val next = when (repeat.value) {
             RepeatMode.OFF -> RepeatMode.ALL
             RepeatMode.ALL -> RepeatMode.ONE
             RepeatMode.ONE -> RepeatMode.OFF
         }
-    }
-
-    private fun load() {
-        val track = current ?: return
-        val myIndex = index.value
-        loadJob?.cancel()
-        exo.stop()
-        exo.clearMediaItems()
-        preparing.value = true
-        Library.addRecent(track)
-        loadJob = scope.launch {
-            try {
-                val file = AudioStore.ensure(track)
-                if (index.value != myIndex || current?.id != track.id) return@launch
-                val item = MediaItem.Builder()
-                    .setMediaId(track.id)
-                    .setUri(Uri.fromFile(file))
-                    .setMediaMetadata(
-                        MediaMetadata.Builder()
-                            .setTitle(track.title)
-                            .setArtist(track.artist)
-                            .setArtworkUri(track.thumbnail?.let { Uri.parse(it) })
-                            .build(),
-                    )
-                    .build()
-                exo.setMediaItem(item)
-                exo.prepare()
-                exo.play()
-                preparing.value = false
-                failuresInARow = 0
-                prefetch(myIndex + 1)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                preparing.value = false
-                failuresInARow++
-                messages.tryEmit("Couldn't play \"${track.title}\": ${shortError(e)}")
-                if (failuresInARow < 3 && index.value + 1 < queue.value.size) next()
-            }
+        repeat.value = next
+        exo.repeatMode = when (next) {
+            RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+            RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+            RepeatMode.ONE -> Player.REPEAT_MODE_ONE
         }
-    }
-
-    /** Fetch the next song in the background so the transition is instant. */
-    private fun prefetch(i: Int) {
-        val t = queue.value.getOrNull(i) ?: return
-        prefetchJob?.cancel()
-        prefetchJob = CoroutineScope(Dispatchers.IO).launch { runCatching { AudioStore.ensure(t) } }
     }
 }
 
 fun shortError(e: Throwable): String {
     val msg = e.message ?: e.javaClass.simpleName
-    val line = msg.lines().lastOrNull { it.contains("ERROR", ignoreCase = false) } ?: msg.lines().firstOrNull { it.isNotBlank() } ?: msg
+    val line = msg.lines().lastOrNull { it.contains("ERROR") } ?: msg.lines().firstOrNull { it.isNotBlank() } ?: msg
     return line.removePrefix("ERROR: ").take(180)
 }
