@@ -28,9 +28,9 @@ Songs start streaming as soon as yt-dlp has found the audio URL. They're saved w
 ## Spotify login (one-time, for private playlists)
 
 1. Go to <https://developer.spotify.com/dashboard>, log in with your Spotify account and **Create app**. Any name and description will do.
-2. **Redirect URI:** `tunio://spotify-callback`. Under *APIs used*, tick **Web API**, then save.
+2. **Redirect URI:** `http://127.0.0.1:43819/callback`. Type it exactly, with `127.0.0.1`, not `localhost`. Spotify no longer accepts custom addresses like `tunio://…` for new apps. Under *APIs used*, tick **Web API**, then save.
 3. Open the app's settings, copy the **Client ID** and paste it in Tunio → Settings → *Spotify account*.
-4. Tap **Log in with Spotify** and accept. Tunio then opens your playlist list.
+4. Tap **Log in with Spotify** and accept. The browser then shows "Logged in to Spotify": tap *Back to Tunio*. While you log in, Tunio listens on that local address on your phone only, then stops.
 
 Tunio only asks to *read* playlists and saved songs. Nothing is changed on your Spotify account. If Spotify says your account isn't allowed, add your account's e-mail under *User Management* in the dashboard app.
 Spotify doesn't let apps read the playlists it generates itself (Daily Mix, Discover Weekly, …). Copy-paste the songs from the desktop app instead.

@@ -1,19 +1,28 @@
 package ch.tunio.app.engine
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import ch.tunio.app.data.TrackList
 import ch.tunio.app.engine.Parsing.arr
 import ch.tunio.app.engine.Parsing.num
 import ch.tunio.app.engine.Parsing.obj
 import ch.tunio.app.engine.Parsing.str
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.net.HttpURLConnection
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.URL
 import java.net.URLEncoder
 
@@ -22,7 +31,12 @@ import java.net.URLEncoder
  * private playlists and Liked Songs. It needs a free Spotify developer app; its Client ID goes in Settings.
  */
 object SpotifyAccount {
-    const val REDIRECT_URI = "tunio://spotify-callback"
+    /**
+     * Spotify no longer accepts custom schemes (tunio://...) for new developer apps, but it does allow a
+     * loopback address for apps on the device itself. Tunio listens there only while you log in.
+     */
+    const val LOOPBACK_PORT = 43819
+    const val REDIRECT_URI = "http://127.0.0.1:$LOOPBACK_PORT/callback"
     private const val SCOPES = "playlist-read-private playlist-read-collaborative user-library-read"
     private const val PREFS = "spotify"
 
@@ -60,6 +74,80 @@ object SpotifyAccount {
             .appendQueryParameter("scope", SCOPES)
             .appendQueryParameter("state", state)
             .build().toString()
+    }
+
+    private val loginScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var loginJob: Job? = null
+    private var server: ServerSocket? = null
+
+    /**
+     * Full login: starts the local callback listener, opens Spotify's login page in the browser, waits for the
+     * browser to come back to http://127.0.0.1:43819/callback, then exchanges the code. [onDone] gets a message.
+     */
+    fun beginLogin(context: Context, onDone: (message: String) -> Unit) {
+        loginJob?.cancel()
+        runCatching { server?.close() }
+        loginJob = loginScope.launch {
+            val message = try {
+                val socket = ServerSocket()
+                socket.reuseAddress = true
+                socket.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), LOOPBACK_PORT))
+                socket.soTimeout = 10 * 60_000 // give up after 10 minutes
+                server = socket
+                val url = authorizeUrl()
+                withContext(Dispatchers.Main) {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+                val callback = socket.use { awaitCallback(it) }
+                finishLogin(callback)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: java.net.SocketTimeoutException) {
+                "Spotify login timed out, please try again"
+            } catch (e: java.net.BindException) {
+                "Couldn't start the login listener (port $LOOPBACK_PORT busy). Close other apps and try again."
+            } catch (e: Throwable) {
+                "Spotify login failed: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                runCatching { server?.close() }
+                server = null
+            }
+            withContext(Dispatchers.Main) { onDone(message) }
+        }
+    }
+
+    /** Serves the browser until it requests /callback; answers with a small "you can go back" page. */
+    private fun awaitCallback(socket: ServerSocket): Uri {
+        while (true) {
+            socket.accept().use { client ->
+                client.soTimeout = 15_000
+                val reader = client.getInputStream().bufferedReader()
+                val requestLine = reader.readLine() ?: return@use
+                while (true) { // drain headers so the browser accepts the response
+                    val h = reader.readLine() ?: break
+                    if (h.isEmpty()) break
+                }
+                val path = requestLine.split(" ").getOrNull(1) ?: "/"
+                val isCallback = path.startsWith("/callback")
+                val failed = isCallback && "error=" in path
+                val body = (if (isCallback) loginPage(failed) else "Not found").toByteArray()
+                val head = "HTTP/1.1 ${if (isCallback) "200 OK" else "404 Not Found"}\r\n" +
+                    "Content-Type: text/html; charset=utf-8\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n"
+                client.getOutputStream().apply { write(head.toByteArray()); write(body); flush() }
+                if (isCallback) return Uri.parse("http://127.0.0.1:$LOOPBACK_PORT$path")
+            }
+        }
+    }
+
+    private fun loginPage(failed: Boolean): String {
+        val title = if (failed) "Spotify login cancelled" else "Logged in to Spotify"
+        return """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>Tunio</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+            background:#0E0E12;color:#F7F7FA;font-family:sans-serif;text-align:center}a{display:inline-block;margin-top:20px;
+            padding:14px 26px;border-radius:999px;background:linear-gradient(135deg,#7C4DEE,#D4337F);color:#fff;
+            text-decoration:none;font-weight:700}p{color:#C8C8D2}</style></head><body><div><h2>$title</h2>
+            <p>You can go back to Tunio now.</p>
+            <a href="intent://open#Intent;scheme=tunio;package=ch.tunio.app;end">Back to Tunio</a></div></body></html>"""
     }
 
     /** Called with tunio://spotify-callback?code=... when the browser comes back. Returns a message for the user. */

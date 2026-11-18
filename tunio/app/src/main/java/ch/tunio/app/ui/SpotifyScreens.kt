@@ -74,7 +74,7 @@ fun SpotifyAccountCard() {
         )
         Text(
             "1. On developer.spotify.com/dashboard log in and tap Create app (any name/description).\n" +
-                "2. Redirect URI: add the one below. Under \"APIs used\" tick Web API. Save.\n" +
+                "2. Redirect URI: add exactly the one below (127.0.0.1, not localhost). Under \"APIs used\" tick Web API. Save.\n" +
                 "3. Open the app's Settings, copy the Client ID and paste it here.\n" +
                 "4. Tap Log in with Spotify.",
             color = TextPrimary, fontSize = 13.sp, lineHeight = 20.sp,
@@ -106,9 +106,13 @@ fun SpotifyAccountCard() {
             enabled = clientId.length >= 20,
             onClick = {
                 SpotifyAccount.clientId = clientId
-                runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SpotifyAccount.authorizeUrl())))
-                }.onFailure { PlayerController.messages.tryEmit("Couldn't open the browser: ${shortError(it)}") }
+                SpotifyAccount.beginLogin(context) { message ->
+                    PlayerController.messages.tryEmit(message)
+                    if (SpotifyAccount.loggedIn) {
+                        Ui.tab(Route.Library)
+                        Ui.push(Route.SpotifyImport)
+                    }
+                }
             },
         )
     }
