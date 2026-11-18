@@ -37,6 +37,10 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import ch.tunio.app.player.PlaybackService
 import ch.tunio.app.player.PlayerController
+import ch.tunio.app.player.shortError
+import ch.tunio.app.engine.SpotifyAccount
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.google.common.util.concurrent.ListenableFuture
 
 class MainActivity : ComponentActivity() {
@@ -54,6 +58,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleShare(intent: Intent?) {
+        val data = intent?.data
+        if (intent?.action == Intent.ACTION_VIEW && data?.scheme == "tunio" && data.host == "spotify-callback") {
+            intent.data = null // don't handle twice on rotation
+            lifecycleScope.launch {
+                val msg = runCatching { SpotifyAccount.finishLogin(data) }.getOrElse { "Spotify login failed: ${shortError(it)}" }
+                PlayerController.messages.tryEmit(msg)
+                if (SpotifyAccount.loggedIn) Ui.tab(Route.Library).also { Ui.push(Route.SpotifyImport) }
+            }
+            return
+        }
         if (intent?.action == Intent.ACTION_SEND) {
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
             SearchModel.openLink(text)
@@ -117,6 +131,7 @@ private fun App() {
                     Route.Search -> SearchScreen()
                     Route.Library -> LibraryScreen()
                     Route.Settings -> SettingsScreen()
+                    Route.SpotifyImport -> SpotifyImportScreen()
                     Route.Liked, Route.Downloads, is Route.PlaylistPage -> CollectionScreen(r)
                 }
             }

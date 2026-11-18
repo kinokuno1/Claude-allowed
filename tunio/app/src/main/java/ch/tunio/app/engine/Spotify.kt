@@ -12,6 +12,14 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -35,15 +43,63 @@ object Spotify {
         return m.groupValues[1] to m.groupValues[2]
     }
 
-    /** Blocking network call: run on Dispatchers.IO. */
-    fun resolve(url: String): TrackList {
-        var link = parseLink(url)
-        if (link == null) {
+    /**
+     * Resolves a Spotify link (track/album/playlist, short links too) or a pasted list of song links.
+     * Uses the Spotify account when logged in (needed for private playlists), else the public embed page.
+     */
+    suspend fun resolveAny(text: String): TrackList {
+        val ids = SpotifyJson.trackIds(text)
+        if (ids.size >= 2) return resolveTrackLinks(ids)
+        val link = parseLink(text) ?: withContext(Dispatchers.IO) {
             // Short links (spotify.link / spoti.fi) redirect to open.spotify.com.
+            val url = Parsing.extractUrl(text) ?: text.trim()
             val (finalUrl, body) = get(url)
-            link = parseLink(finalUrl) ?: parseLink(body) ?: error("Not a Spotify track, album or playlist link")
-        }
+            parseLink(finalUrl) ?: parseLink(body)
+        } ?: error("Not a Spotify song, album or playlist link")
         val (type, id) = link
+        var accountError: Throwable? = null
+        if (SpotifyAccount.loggedIn) {
+            try {
+                return when (type) {
+                    "playlist" -> SpotifyAccount.playlist(id)
+                    "album" -> SpotifyAccount.album(id)
+                    else -> SpotifyAccount.track(id)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                accountError = e // fall back to the public page below
+            }
+        }
+        val public = withContext(Dispatchers.IO) { runCatching { resolvePublic(type, id) } }
+        public.getOrNull()?.let { return it }
+        if (accountError != null) throw accountError
+        if (type == "playlist") {
+            throw IllegalStateException(
+                "Couldn't read this playlist. If it's private, log in to Spotify in Settings → Spotify account " +
+                    "(one-time setup), or make the playlist public in Spotify.",
+            )
+        }
+        throw public.exceptionOrNull() ?: IllegalStateException("Couldn't read this Spotify link")
+    }
+
+    /** Songs copied from the Spotify desktop app (select songs → Ctrl+C gives one link per line). */
+    private suspend fun resolveTrackLinks(ids: List<String>): TrackList = coroutineScope {
+        val gate = Semaphore(6)
+        val tracks = ids.map { id ->
+            async(Dispatchers.IO) {
+                gate.withPermit {
+                    runCatching { resolvePublic("track", id).tracks.firstOrNull() }.getOrNull()
+                        ?: if (SpotifyAccount.loggedIn) runCatching { SpotifyAccount.track(id).tracks.firstOrNull() }.getOrNull() else null
+                }
+            }
+        }.awaitAll().filterNotNull()
+        if (tracks.isEmpty()) error("Couldn't read any of the ${ids.size} Spotify songs")
+        TrackList("Pasted Spotify songs", tracks, tracks.first().thumbnail)
+    }
+
+    /** Blocking network call: run on Dispatchers.IO. Works for public playlists, albums and all songs. */
+    private fun resolvePublic(type: String, id: String): TrackList {
         val pageUrl = "https://open.spotify.com/$type/$id"
         val fromEmbed = runCatching { parseEmbed(get("https://open.spotify.com/embed/$type/$id").second, type, id) }.getOrNull()
         if (fromEmbed != null && fromEmbed.tracks.isNotEmpty()) return fromEmbed.copy(sourceUrl = pageUrl)

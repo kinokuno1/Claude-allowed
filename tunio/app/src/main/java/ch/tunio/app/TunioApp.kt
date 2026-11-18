@@ -4,6 +4,7 @@ import android.app.Application
 import ch.tunio.app.data.Library
 import ch.tunio.app.engine.AudioStore
 import ch.tunio.app.engine.Engine
+import ch.tunio.app.engine.SpotifyAccount
 import ch.tunio.app.player.PlayerController
 
 class TunioApp : Application() {
@@ -11,6 +12,7 @@ class TunioApp : Application() {
         super.onCreate()
         Library.init(this)
         AudioStore.init(this)
+        SpotifyAccount.init(this)
         PlayerController.init(this)
         Engine.start(this)
     }

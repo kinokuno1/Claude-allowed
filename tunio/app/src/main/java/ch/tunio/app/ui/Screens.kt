@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
@@ -288,7 +289,8 @@ fun SearchScreen() {
         }
         item {
             Text(
-                "TikTok & Spotify: paste a link here, or use Share → Tunio in their apps. Spotify songs are played from YouTube.",
+                "TikTok & Spotify: paste a link here, or use Share → Tunio in their apps. Spotify songs are played from YouTube. " +
+                    "Private Spotify playlists: Library → Spotify. You can also paste many Spotify song links at once.",
                 color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
@@ -360,6 +362,11 @@ fun LibraryScreen() {
         }
         item {
             LibraryRow("Downloads", "${offline.size} songs available offline", null, Brush.linearGradient(listOf(Color(0xFF0EA5E9), Good)), Icons.Filled.DownloadDone) { Ui.push(Route.Downloads) }
+        }
+        item {
+            LibraryRow("Spotify", "Import your Spotify playlists (private ones too)", null, Brush.linearGradient(listOf(Color(0xFF1ED760), Color(0xFF0E7A3A))), Icons.Filled.CloudDownload) {
+                Ui.push(Route.SpotifyImport)
+            }
         }
         items(lib.playlists, key = { it.id }) { p ->
             LibraryRow(p.name, "Playlist · ${p.trackIds.size} songs", p.cover ?: Library.track(p.trackIds.firstOrNull() ?: "")?.thumbnail, null, null) {
@@ -566,6 +573,7 @@ fun SettingsScreen() {
                 OutlinedButton(onClick = { Engine.start(context) }) { Text("Retry starting engine") }
             }
         }
+        SettingsCard("Spotify account") { SpotifyAccountCard() }
         SettingsCard("Extra yt-dlp options") {
             Text("Advanced. Added to every yt-dlp call, e.g. --extractor-args \"youtube:player_client=default\"", color = Muted, fontSize = 13.sp)
             OutlinedTextField(value = extra, onValueChange = { extra = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("(none)") })

@@ -140,7 +140,7 @@ object Engine {
 
     /** Turns any supported link (YouTube/SoundCloud/TikTok/Spotify, single or playlist) into tracks. */
     suspend fun resolveLink(url: String): TrackList {
-        if (Spotify.isSpotify(url)) return withContext(Dispatchers.IO) { Spotify.resolve(url) }
+        if (Spotify.isSpotify(url) || SpotifyJson.trackIds(url).isNotEmpty()) return Spotify.resolveAny(url)
         val req = YoutubeDLRequest(url)
             .addOption("--flat-playlist")
             .addOption("-J")

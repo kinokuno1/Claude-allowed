@@ -5,6 +5,7 @@ import ch.tunio.app.data.Track
 import ch.tunio.app.data.TrackList
 import ch.tunio.app.engine.Engine
 import ch.tunio.app.engine.Parsing
+import ch.tunio.app.engine.SpotifyJson
 import ch.tunio.app.player.shortError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -14,7 +15,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-fun isLink(text: String): Boolean = Parsing.extractUrl(text) != null || Parsing.looksLikeUrl(text)
+fun isLink(text: String): Boolean =
+    Parsing.extractUrl(text) != null || Parsing.looksLikeUrl(text) || SpotifyJson.trackIds(text).isNotEmpty()
 
 sealed interface Route {
     data object Home : Route
@@ -23,6 +25,7 @@ sealed interface Route {
     data object Liked : Route
     data object Downloads : Route
     data object Settings : Route
+    data object SpotifyImport : Route
     data class PlaylistPage(val id: String) : Route
 }
 
@@ -65,10 +68,36 @@ object SearchModel {
         result.value = null
         job = scope.launch {
             try {
-                val link = Parsing.extractUrl(q) ?: q.takeIf { Parsing.looksLikeUrl(it) }?.let { "https://$it" }
+                // Several Spotify song links pasted at once (copied from the desktop app) are kept together.
+                val link = if (SpotifyJson.trackIds(q).size >= 2) q
+                else Parsing.extractUrl(q) ?: q.takeIf { Parsing.looksLikeUrl(it) }?.let { "https://$it" }
                 fromLink.value = link != null
                 result.value = if (link != null) Engine.resolveLink(link) else TrackList(null, Engine.search(source.value, q))
                 if (result.value?.tracks.isNullOrEmpty()) error.value = "Nothing found."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                error.value = shortError(e)
+            } finally {
+                if (myToken == token) loading.value = false
+            }
+        }
+    }
+
+    /** Shows the result of [block] (e.g. a Spotify playlist) on the Search tab, ready to play or save. */
+    fun load(label: String, block: suspend () -> TrackList) {
+        job?.cancel()
+        val myToken = ++token
+        query.value = label
+        fromLink.value = true
+        loading.value = true
+        error.value = null
+        result.value = null
+        Ui.tab(Route.Search)
+        job = scope.launch {
+            try {
+                result.value = block()
+                if (result.value?.tracks.isNullOrEmpty()) error.value = "This list is empty."
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
