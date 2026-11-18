@@ -10,7 +10,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -56,7 +59,18 @@ object PlayerController {
     val current: Track? get() = queue.value.getOrNull(index.value)
 
     fun init(context: Context) {
-        val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(context), ResolvingDataSource.Resolver { spec -> resolve(spec) })
+        StreamCache.init(context)
+        val http = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(20_000)
+        val local = DefaultDataSource.Factory(context, http)
+        val cached = CacheDataSource.Factory()
+            .setCache(StreamCache.cache)
+            .setUpstreamDataSourceFactory(http)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val router = DataSource.Factory { RouterDataSource(local.createDataSource(), cached.createDataSource()) }
+        val resolving = ResolvingDataSource.Factory(router, ResolvingDataSource.Resolver { spec -> resolve(spec) })
         val noRetryForFetch = object : DefaultLoadErrorHandlingPolicy() {
             override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
                 if (generateSequence(info.exception as Throwable?) { it.cause }.any { it is FetchException }) C.TIME_UNSET
@@ -111,14 +125,29 @@ object PlayerController {
         if (uri.scheme != "tunio") return spec
         val id = uri.lastPathSegment ?: throw FetchException("Bad song id", null)
         val track = known[id] ?: Library.track(id) ?: throw FetchException("Unknown song", null)
-        val file = try {
-            runBlocking { AudioStore.ensure(track) }
+        // 1. Downloaded (offline) or previously downloaded file.
+        AudioStore.localFile(track)?.let { return spec.withUri(Uri.fromFile(it)) }
+        // 2. Already fully streamed once: play from the stream cache, no network or yt-dlp.
+        if (StreamCache.isFullyCached(track.id)) {
+            return spec.buildUpon().setUri(Uri.parse("https://cached.invalid/${track.id}")).setKey(track.id).build()
+        }
+        try {
+            // 3. Ask yt-dlp for the audio URL and start streaming immediately (cached while it plays).
+            val stream = runBlocking { AudioStore.stream(track) }
+            if (stream != null) {
+                return spec.buildUpon()
+                    .setUri(Uri.parse(stream.url))
+                    .setKey(track.id)
+                    .setHttpRequestHeaders(stream.headers + spec.httpRequestHeaders)
+                    .build()
+            }
+            // 4. Not streamable (TikTok, HLS-only SoundCloud): download the whole file first.
+            return spec.withUri(Uri.fromFile(runBlocking { AudioStore.ensure(track) }))
         } catch (e: InterruptedException) {
             throw java.io.InterruptedIOException("Cancelled")
         } catch (e: Throwable) {
             throw FetchException(shortError(e), e)
         }
-        return spec.withUri(Uri.fromFile(file))
     }
 
     private fun refreshState() {

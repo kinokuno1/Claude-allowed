@@ -1,6 +1,7 @@
 package ch.tunio.app.engine
 
 import ch.tunio.app.data.Source
+import ch.tunio.app.data.StreamInfo
 import ch.tunio.app.data.Track
 import ch.tunio.app.data.TrackList
 import kotlinx.serialization.json.Json
@@ -93,6 +94,20 @@ object Parsing {
             thumbnail = thumb,
             url = url,
         )
+    }
+
+    /** Parses `yt-dlp -j -f ba/b` output into a streamable URL, if the chosen format is plain HTTP(S). */
+    fun streamInfo(text: String): StreamInfo? {
+        val start = text.indexOf('{')
+        if (start < 0) return null
+        val o = json.parseToJsonElement(text.substring(start).lineSequence().first()) as? JsonObject ?: return null
+        val protocol = o.str("protocol") ?: "https"
+        if (protocol != "https" && protocol != "http") return null
+        val url = o.str("url") ?: return null
+        val headers = o.obj("http_headers")?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }?.toMap().orEmpty()
+        // Format-level cookies (e.g. TikTok) aren't in http_headers; streaming without them would fail.
+        if (o.str("cookies") != null) return null
+        return StreamInfo(url, headers)
     }
 
     /** Parses `yt-dlp -J` output: either a single item or a playlist with `entries`. */

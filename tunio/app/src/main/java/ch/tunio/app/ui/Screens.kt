@@ -543,7 +543,7 @@ fun SettingsScreen() {
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(refresh) {
         withContext(Dispatchers.IO) {
-            cacheBytes = AudioStore.sizeOf(AudioStore.cacheDir)
+            cacheBytes = AudioStore.sizeOf(AudioStore.cacheDir) + ch.tunio.app.player.StreamCache.size()
             offlineBytes = AudioStore.sizeOf(AudioStore.offlineDir)
         }
     }
@@ -583,8 +583,8 @@ fun SettingsScreen() {
             Text("Downloaded (offline): ${mb(offlineBytes)}", color = Muted)
             Text("Location: ${AudioStore.offlineDir.absolutePath}", color = Muted, fontSize = 12.sp)
             Spacer(Modifier.height(6.dp))
-            Text("Playback cache: ${mb(cacheBytes)} (songs you've played, cleared automatically above 600 MB)", color = Muted)
-            TextButton(onClick = { AudioStore.clearCache(); refresh++ }) { Text("Clear cache") }
+            Text("Playback cache: ${mb(cacheBytes)} (songs you've played, oldest removed automatically)", color = Muted)
+            TextButton(onClick = { AudioStore.clearCache(); ch.tunio.app.player.StreamCache.clear(); refresh++ }) { Text("Clear cache") }
         }
         SettingsCard("About") {
             Text(

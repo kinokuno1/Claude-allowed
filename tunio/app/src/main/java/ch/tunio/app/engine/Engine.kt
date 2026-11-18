@@ -3,6 +3,7 @@ package ch.tunio.app.engine
 import android.content.Context
 import android.util.Log
 import ch.tunio.app.data.Source
+import ch.tunio.app.data.StreamInfo
 import ch.tunio.app.data.Track
 import ch.tunio.app.data.TrackList
 import com.yausername.ffmpeg.FFmpeg
@@ -105,6 +106,9 @@ object Engine {
         ready.await()
         (status.value as? EngineStatus.Failed)?.let { throw IllegalStateException("Engine failed to start: ${it.message}") }
         while (status.value == EngineStatus.Updating) delay(300)
+        // youtubedl-android disables yt-dlp's cache unless a dir is given. The cache holds YouTube's
+        // pre-processed player code; without it every song re-downloads (~2 MB) and re-runs it in QuickJS.
+        if (!request.hasOption("--cache-dir")) request.addOption("--cache-dir", File(app.filesDir, "ytdlp-cache").absolutePath)
         extraArgs.takeIf { it.isNotBlank() }?.let { request.addCommands(splitArgs(it)) }
         val pid = UUID.randomUUID().toString()
         val callback: (Float, Long, String) -> Unit = { progress, _, _ -> onProgress?.invoke(progress) }
@@ -152,6 +156,19 @@ object Engine {
     suspend fun matchOnYouTube(track: Track): Track {
         val candidates = search(Source.YOUTUBE, track.searchQuery + " audio", count = 6)
         return Matching.pick(candidates, track) ?: error("No YouTube match for ${track.searchQuery}")
+    }
+
+    /**
+     * Asks yt-dlp only *where* the best audio is (no download), so playback can start right away.
+     * Returns null when the audio is not a plain HTTP file (e.g. HLS-only SoundCloud tracks).
+     */
+    suspend fun streamInfo(target: String): StreamInfo? {
+        val req = YoutubeDLRequest(target)
+            .addOption("-f", "ba/b")
+            .addOption("-j")
+            .addOption("--no-playlist")
+            .addOption("--playlist-items", "1")
+        return Parsing.streamInfo(run(req).out)
     }
 
     /** Downloads the best audio of [target] into [dir] as `<key>.<ext>` and returns the file. */

@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Environment
 import ch.tunio.app.data.Library
 import ch.tunio.app.data.Source
+import ch.tunio.app.data.StreamInfo
 import ch.tunio.app.data.Track
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -68,19 +69,41 @@ object AudioStore {
         return d.await()
     }
 
-    private suspend fun fetch(track: Track): File = limiter.withPermit {
+    /** The URL yt-dlp should use for [track]; Spotify songs get matched to YouTube once (and remembered). */
+    private suspend fun target(track: Track): String {
+        (Library.track(track.id)?.downloadTarget ?: track.downloadTarget)?.let { return it }
+        if (track.source != Source.SPOTIFY) error("Nothing to download for ${track.title}")
+        val match = Engine.matchOnYouTube(track).url ?: error("No YouTube match for ${track.title}")
+        Library.updateTrack((Library.track(track.id) ?: track).copy(matchedUrl = match))
+        return match
+    }
+
+    private val streams = java.util.concurrent.ConcurrentHashMap<String, Pair<StreamInfo, Long>>()
+
+    /**
+     * A URL to stream [track] from right away, or null if it has to be downloaded first.
+     * YouTube URLs expire after ~6 h, so they are reused for 3 h at most.
+     */
+    suspend fun stream(track: Track): StreamInfo? {
+        if (track.source == Source.TIKTOK || track.source == Source.OTHER) return null
+        streams[track.id]?.let { (info, at) -> if (System.currentTimeMillis() - at < 3 * 3600_000L) return info }
         setProgress(track.id, -1f)
         try {
-            var target = track.downloadTarget
-            if (target == null && track.source == Source.SPOTIFY) {
-                val match = Engine.matchOnYouTube(track)
-                target = match.url
-                Library.updateTrack((Library.track(track.id) ?: track).copy(matchedUrl = target))
-            }
-            requireNotNull(target) { "Nothing to download for ${track.title}" }
+            val info = Engine.streamInfo(target(track)) ?: return null
+            streams[track.id] = info to System.currentTimeMillis()
+            return info
+        } finally {
+            progress.update { it - track.id }
+        }
+    }
+
+    private suspend fun fetch(track: Track): File {
+        setProgress(track.id, -1f)
+        try {
+            val target = target(track)
             val file = Engine.downloadAudio(target, cacheDir, track.id) { p -> setProgress(track.id, (p / 100f).coerceIn(0f, 1f)) }
             trimCache()
-            file
+            return file
         } finally {
             progress.update { it - track.id }
         }
@@ -102,8 +125,9 @@ object AudioStore {
         offline.update { it + track.id }
     }
 
+    /** Bulk offline downloads run 2 at a time, so the song you're playing never waits behind them. */
     fun downloadAll(tracks: List<Track>) {
-        tracks.filterNot { isOffline(it.id) }.forEach { t -> scope.launch { runCatching { download(t) } } }
+        tracks.filterNot { isOffline(it.id) }.forEach { t -> scope.launch { limiter.withPermit { runCatching { download(t) } } } }
     }
 
     fun removeDownload(track: Track) {
