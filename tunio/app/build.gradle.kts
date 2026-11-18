@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "ch.tunio.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "ch.tunio.app"
@@ -51,9 +51,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 
     buildFeatures {
         compose = true
@@ -76,13 +73,18 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
-    implementation(composeBom)
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    // Compose 1.10 is what the Backdrop (liquid glass) library is built against.
+    implementation("androidx.compose.ui:ui:1.10.3")
+    implementation("androidx.compose.foundation:foundation:1.10.3")
+    implementation("androidx.compose.material3:material3:1.4.0")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
@@ -94,8 +96,11 @@ dependencies {
     implementation("androidx.media3:media3-database:1.5.1")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // Liquid glass: refracts (lens), blurs and tints what's behind it (Kyant0/AndroidLiquidGlass).
+    // Refraction needs Android 13+, blur Android 12+; older phones get a frosted fallback.
+    implementation("io.github.kyant0:backdrop:1.0.6")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     // yt-dlp + Python + QuickJS + ffmpeg packaged for Android (the engine behind the Seal app).
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")

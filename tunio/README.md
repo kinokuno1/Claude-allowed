@@ -35,11 +35,16 @@ Songs start streaming as soon as yt-dlp has found the audio URL. They're saved w
 Tunio only asks to *read* playlists and saved songs. Nothing is changed on your Spotify account. If Spotify says your account isn't allowed, add your account's e-mail under *User Management* in the dashboard app.
 Spotify doesn't let apps read the playlists it generates itself (Daily Mix, Discover Weekly, …). Copy-paste the songs from the desktop app instead.
 
+## Look
+
+"Liquid glass" design using [Backdrop](https://github.com/Kyant0/AndroidLiquidGlass): the floating tab bar, mini player, buttons and cards are glass that **bends (refracts) and blurs** what's behind them through a lens at their edges, with a little chromatic dispersion. Scroll a list under the tab bar to see it. Refraction needs Android 13+ and blur needs Android 12+. Older phones get a frosted look instead.
+Colours are the same violet/pink as before. Text and icon colours were checked against their worst-case backgrounds, including glass over the brightest light and the player over a pure-white cover, so nothing dark sits on black. The lowest text contrast is 5.6:1, above the WCAG 4.5:1 minimum.
+
 ## How it works
 
 - **Engine:** [youtubedl-android](https://github.com/JunkFood02/youtubedl-android), the library used by the [Seal](https://github.com/JunkFood02/Seal) downloader. It packages yt-dlp, Python 3.12, QuickJS and ffmpeg for Android. yt-dlp updates itself from GitHub once a day, and you can update it manually in Settings.
 - **Player:** AndroidX Media3 / ExoPlayer with a MediaSession service.
-- **UI:** Jetpack Compose.
+- **UI:** Jetpack Compose with Kyant0's Backdrop library for the liquid glass.
 - **Storage:** downloads are kept in the app's own folder (`Android/data/ch.tunio.app/files/Music/offline`). The library (likes and playlists) is saved in `library.json` in the app's private storage. Uninstalling the app deletes both.
 
 ```

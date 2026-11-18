@@ -1,12 +1,9 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package ch.tunio.app.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,24 +13,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,7 +39,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -65,49 +58,51 @@ fun SpotifyAccountCard() {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var clientId by remember { mutableStateOf(SpotifyAccount.clientId) }
-    Column {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (user != null) {
-            Text("Connected as $user", color = Good)
+            Text("Connected as $user", color = Good, fontWeight = FontWeight.SemiBold)
             Text("Private playlists and Liked Songs can be imported from Library → Spotify.", color = Muted, fontSize = 13.sp)
-            Row {
-                TextButton(onClick = { Ui.push(Route.SpotifyImport) }) { Text("Open my Spotify playlists") }
-                TextButton(onClick = { SpotifyAccount.logout() }) { Text("Log out") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AccentButton("My playlists", onClick = { Ui.push(Route.SpotifyImport) })
+                GlassButton("Log out", icon = Icons.AutoMirrored.Rounded.Logout, onClick = { SpotifyAccount.logout() })
             }
             return@Column
         }
         Text(
             "Needed only for private playlists and Liked Songs (public links work without it). One-time setup:",
-            color = Muted, fontSize = 13.sp,
+            color = Muted, fontSize = 13.sp, lineHeight = 19.sp,
         )
-        Spacer(Modifier.height(6.dp))
         Text(
             "1. On developer.spotify.com/dashboard log in and tap Create app (any name/description).\n" +
                 "2. Redirect URI: add the one below. Under \"APIs used\" tick Web API. Save.\n" +
                 "3. Open the app's Settings, copy the Client ID and paste it here.\n" +
                 "4. Tap Log in with Spotify.",
-            fontSize = 13.sp,
+            color = TextPrimary, fontSize = 13.sp, lineHeight = 20.sp,
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(SpotifyAccount.REDIRECT_URI, fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = {
+        Row(
+            Modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(start = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(SpotifyAccount.REDIRECT_URI, color = TextPrimary, fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            GlassIconButton(Icons.Rounded.ContentCopy, "Copy", size = 40.dp, onClick = {
                 clipboard.setText(AnnotatedString(SpotifyAccount.REDIRECT_URI))
                 PlayerController.messages.tryEmit("Redirect URI copied")
-            }) { Text("Copy") }
+            })
         }
-        Row {
-            TextButton(onClick = {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://developer.spotify.com/dashboard")))
-            }) { Text("Open Spotify dashboard") }
-        }
+        GlassButton("Open Spotify dashboard", icon = Icons.Rounded.OpenInNew, onClick = {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://developer.spotify.com/dashboard")))
+        })
         OutlinedTextField(
             value = clientId,
             onValueChange = { clientId = it.trim() },
             label = { Text("Client ID") },
             singleLine = true,
+            colors = glassFieldColors(),
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(8.dp))
-        Button(
+        AccentButton(
+            "Log in with Spotify",
             enabled = clientId.length >= 20,
             onClick = {
                 SpotifyAccount.clientId = clientId
@@ -115,7 +110,7 @@ fun SpotifyAccountCard() {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SpotifyAccount.authorizeUrl())))
                 }.onFailure { PlayerController.messages.tryEmit("Couldn't open the browser: ${shortError(it)}") }
             },
-        ) { Text("Log in with Spotify") }
+        )
     }
 }
 
@@ -132,45 +127,55 @@ fun SpotifyImportScreen() {
             .onSuccess { playlists = it }
             .onFailure { error = shortError(it) }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalBottomInset.current + 12.dp)) {
         item {
-            TopAppBar(
-                title = { Text("Spotify") },
-                navigationIcon = { IconButton(onClick = { Ui.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg),
-            )
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back", onClick = { Ui.back() })
+                Spacer(Modifier.width(14.dp))
+                Text("Spotify", style = MaterialTheme.typography.headlineMedium, color = TextPrimary)
+            }
         }
         if (user == null) {
             item {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Log in to Spotify to import your private playlists and Liked Songs.", color = Muted)
-                    Spacer(Modifier.height(8.dp))
-                    SpotifyAccountCard()
+                GlassCard(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("Log in to Spotify to import your private playlists and Liked Songs.", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(10.dp))
+                        SpotifyAccountCard()
+                    }
                 }
             }
             return@LazyColumn
         }
         item {
             Text(
-                "Tap a playlist to open it, then Play or Save as playlist (saving keeps it in Tunio; download it from there for offline).",
-                color = Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                "Tap a playlist to open it, then Play or Save as playlist. Saved playlists can be downloaded for offline.",
+                color = Muted, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             )
         }
         item {
-            ImportRow("Liked Songs", "Your saved songs on Spotify", null, liked = true) {
-                SearchModel.load("Spotify: Liked Songs") { SpotifyAccount.likedSongs() }
+            GlassCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    ImportRow("Liked Songs", "Your saved songs on Spotify", null, liked = true) {
+                        SearchModel.load("Spotify: Liked Songs") { SpotifyAccount.likedSongs() }
+                    }
+                }
             }
         }
-        error?.let { e -> item { Text(e, color = Color(0xFFF87171), modifier = Modifier.padding(16.dp)) } }
+        error?.let { e -> item { Text(e, color = ErrorText, modifier = Modifier.padding(20.dp)) } }
         val list = playlists
         if (list == null && error == null) {
             item {
-                Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center) {
-                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = AccentLight)
                 }
             }
         }
         if (list != null) {
+            item { SectionTitle("Your playlists") }
             items(list, key = { it.id }) { p ->
                 ImportRow(p.name, "${p.count} songs", p.cover) {
                     SearchModel.load("Spotify: ${p.name}") { SpotifyAccount.playlist(p.id) }
@@ -178,7 +183,7 @@ fun SpotifyImportScreen() {
             }
         }
         item {
-            OutlinedButton(onClick = { SpotifyAccount.logout() }, modifier = Modifier.padding(16.dp)) { Text("Log out of Spotify") }
+            GlassButton("Log out of Spotify", icon = Icons.AutoMirrored.Rounded.Logout, onClick = { SpotifyAccount.logout() }, modifier = Modifier.padding(16.dp))
         }
     }
 }
@@ -186,20 +191,19 @@ fun SpotifyImportScreen() {
 @Composable
 private fun ImportRow(title: String, subtitle: String, image: String?, liked: Boolean = false, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (liked) {
-            Box(
-                Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)).background(Brush.linearGradient(listOf(Accent, Accent2))),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.Favorite, null, tint = Color.White) }
-        } else {
-            Artwork(image, 56.dp)
-        }
-        Spacer(Modifier.width(12.dp))
+        if (liked) GradientTile(Icons.Rounded.Favorite, Brush.linearGradient(listOf(AccentDeep, Accent2Deep)), 56.dp, 14.dp)
+        else Artwork(image, 56.dp, 14.dp)
+        Spacer(Modifier.width(14.dp))
         Column {
-            Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, color = Muted, fontSize = 13.sp)
         }
     }

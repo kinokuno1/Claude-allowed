@@ -1,42 +1,46 @@
 package ch.tunio.app.ui
 
+import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -52,11 +56,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ch.tunio.app.data.Library
@@ -65,6 +74,11 @@ import ch.tunio.app.engine.AudioStore
 import ch.tunio.app.player.PlayerController
 import ch.tunio.app.player.RepeatMode
 import ch.tunio.app.player.shortError
+import coil.compose.AsyncImage
+import androidx.compose.runtime.CompositionLocalProvider
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -84,50 +98,65 @@ private fun rememberProgress(): Pair<Long, Long> {
     return pos to dur
 }
 
+/** Floating liquid-glass mini player: bends the screen content scrolling under it. */
 @Composable
-fun MiniPlayer() {
+fun MiniPlayer(backdrop: Backdrop) {
     val queue by PlayerController.queue.collectAsState()
     val index by PlayerController.index.collectAsState()
     val playing by PlayerController.isPlaying.collectAsState()
     val preparing by PlayerController.preparing.collectAsState()
     val track = queue.getOrNull(index) ?: return
     val (pos, dur) = rememberProgress()
-    Column(
+    val shape = RoundedCornerShape(26.dp)
+    Box(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Surface2)
+            .chromeGlass(backdrop, shape)
             .clickable { Ui.playerOpen.value = true },
     ) {
-        Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(track.thumbnail, 42.dp, 4.dp)
-            Spacer(Modifier.width(10.dp))
+        Row(Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Artwork(track.thumbnail, 44.dp, 14.dp)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(track.title, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(
                     if (preparing) "Loading…" else track.artist,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, color = Muted, fontSize = 12.sp,
                 )
             }
             if (preparing) {
-                CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
-            } else {
-                IconButton(onClick = { PlayerController.togglePlay() }) {
-                    Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Play/pause", Modifier.size(30.dp))
+                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = TextPrimary)
                 }
+            } else {
+                RoundIcon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play/pause", 44.dp, 30.dp) { PlayerController.togglePlay() }
             }
-            IconButton(onClick = { PlayerController.next() }) { Icon(Icons.Filled.SkipNext, "Next") }
+            RoundIcon(Icons.Rounded.SkipNext, "Next", 44.dp, 26.dp) { PlayerController.next() }
         }
-        LinearProgressIndicator(
-            progress = { if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f },
-            modifier = Modifier.fillMaxWidth().height(2.dp),
-            color = Color.White,
-            trackColor = Color.White.copy(alpha = 0.15f),
-        )
+        // Thin progress line along the bottom edge of the glass.
+        val fraction = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 18.dp)
+                .fillMaxWidth()
+                .height(2.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(Color.White.copy(alpha = 0.15f)),
+        ) {
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(AccentGradient))
+        }
     }
 }
 
+@Composable
+private fun RoundIcon(icon: ImageVector, description: String, size: Dp, iconSize: Dp, tint: Color = TextPrimary, onClick: () -> Unit) {
+    Box(Modifier.size(size).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, description, tint = tint, modifier = Modifier.size(iconSize))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NowPlayingScreen() {
     val queue by PlayerController.queue.collectAsState()
@@ -150,146 +179,193 @@ fun NowPlayingScreen() {
     var dragValue by remember { mutableFloatStateOf(0f) }
     val liked = track.id in lib.liked
     val fetchProgress = progressMap[track.id]
+    val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    LazyColumn(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF3B2A6B), Bg, Bg))),
-    ) {
-        item {
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { Ui.playerOpen.value = false }) { Icon(Icons.Filled.KeyboardArrowDown, "Close", Modifier.size(32.dp)) }
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("PLAYING FROM ${track.source.label.uppercase()}", fontSize = 11.sp, color = Muted, letterSpacing = 1.sp)
-                }
-                TrackMenu(track, tint = Color.White)
-            }
-        }
-        item {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 20.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(Surface2)) {
-                    coil.compose.AsyncImage(
-                        model = track.thumbnail,
-                        contentDescription = null,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    if (preparing) {
-                        Column(
-                            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            if (fetchProgress != null && fetchProgress >= 0f) {
-                                CircularProgressIndicator(progress = { fetchProgress }, color = Color.White)
-                            } else {
-                                CircularProgressIndicator(color = Color.White)
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                if (fetchProgress != null && fetchProgress >= 0f) "Fetching audio ${(fetchProgress * 100).toInt()}%" else "Finding audio…",
-                                color = Color.White,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(track.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(track.artist, fontSize = 15.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                IconButton(onClick = {
-                    if (track.id in offline) AudioStore.removeDownload(track)
-                    else scope.launch {
-                        runCatching { AudioStore.download(track) }
-                            .onFailure { PlayerController.messages.tryEmit("Download failed: ${shortError(it)}") }
-                    }
-                }) {
-                    if (track.id in offline) Icon(Icons.Filled.DownloadDone, "Downloaded", tint = Good)
-                    else Icon(Icons.Filled.Download, "Download", tint = Color.White)
-                }
-                IconButton(onClick = { Library.toggleLike(track) }) {
-                    Icon(if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, "Like", tint = if (liked) Accent2 else Color.White)
-                }
-            }
-        }
-        item {
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                val fraction = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
-                Slider(
-                    value = if (dragging) dragValue else fraction,
-                    onValueChange = { dragging = true; dragValue = it },
-                    onValueChangeFinished = {
-                        if (dur > 0) PlayerController.seekTo((dragValue * dur).toLong())
-                        dragging = false
-                    },
-                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.2f)),
+    val playerBackdrop = rememberLayerBackdrop()
+    Box(Modifier.fillMaxSize().background(Bg)) {
+        // Background: the cover art, hugely blurred, under a dark wash so all text stays light-on-dark.
+        // The glass controls on top refract this layer.
+        Box(Modifier.fillMaxSize().layerBackdrop(playerBackdrop)) {
+            Aurora()
+            if (canBlur && track.thumbnail != null) {
+                AsyncImage(
+                    model = track.thumbnail,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = 0.60f }.blur(90.dp),
                 )
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                    Text(formatDuration(((if (dragging) dragValue * dur else pos.toFloat()) / 1000).toInt()).ifEmpty { "0:00" }, fontSize = 12.sp, color = Muted)
-                    Spacer(Modifier.weight(1f))
-                    Text(formatDuration((dur / 1000).toInt()), fontSize = 12.sp, color = Muted)
-                }
             }
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.62f), Color.Black.copy(alpha = 0.74f), Color.Black.copy(alpha = 0.86f))),
+                ),
+            )
         }
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = { PlayerController.toggleShuffle() }) {
-                    Icon(Icons.Filled.Shuffle, "Shuffle", tint = if (shuffle) Accent else Color.White)
-                }
-                IconButton(onClick = { PlayerController.previous() }, modifier = Modifier.size(56.dp)) {
-                    Icon(Icons.Filled.SkipPrevious, "Previous", Modifier.size(40.dp))
-                }
-                FilledIconButton(
-                    onClick = { PlayerController.togglePlay() },
-                    modifier = Modifier.size(72.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black),
-                ) {
-                    if (preparing) CircularProgressIndicator(Modifier.size(30.dp), color = Color.Black, strokeWidth = 3.dp)
-                    else Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Play/pause", Modifier.size(42.dp))
-                }
-                IconButton(onClick = { PlayerController.next() }, modifier = Modifier.size(56.dp)) {
-                    Icon(Icons.Filled.SkipNext, "Next", Modifier.size(40.dp))
-                }
-                IconButton(onClick = { PlayerController.cycleRepeat() }) {
-                    Icon(
-                        if (repeat == RepeatMode.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-                        "Repeat",
-                        tint = if (repeat == RepeatMode.OFF) Color.White else Accent,
-                    )
-                }
-            }
-        }
-        item {
-            Text("Up next", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp))
-        }
-        itemsIndexed(queue, key = { i, t -> "$i-${t.id}" }) { i, t ->
-            if (i > index) {
+
+        CompositionLocalProvider(LocalGlassBackdrop provides playerBackdrop) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item {
                 Row(
-                    Modifier.fillMaxWidth().clickable { PlayerController.jumpTo(i) }.padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                    Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Artwork(t.thumbnail, 44.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(t.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            SourceBadge(t.source)
-                            OfflineIndicator(t, 12.dp)
-                            Text(t.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Muted, fontSize = 12.sp)
-                        }
+                    GlassIconButton(Icons.Rounded.KeyboardArrowDown, "Close", onClick = { Ui.playerOpen.value = false })
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("PLAYING FROM", fontSize = 10.sp, color = Muted, letterSpacing = 1.5.sp)
+                        Text(track.source.label, fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
                     }
-                    IconButton(onClick = { PlayerController.removeFromQueue(i) }) { Icon(Icons.Filled.Close, "Remove", tint = Muted) }
+                    Box(Modifier.size(44.dp).glass(CircleShape), contentAlignment = Alignment.Center) {
+                        TrackMenu(track, tint = TextPrimary)
+                    }
                 }
             }
+            item {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 22.dp), contentAlignment = Alignment.Center) {
+                    val shape = RoundedCornerShape(30.dp)
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(shape)
+                            .background(Surface2)
+                            .border(1.dp, Glass.rim, shape),
+                    ) {
+                        AsyncImage(model = track.thumbnail, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        Box(Modifier.fillMaxSize().background(Glass.sheen))
+                        if (preparing) {
+                            Column(
+                                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                if (fetchProgress != null && fetchProgress >= 0f) {
+                                    CircularProgressIndicator(progress = { fetchProgress }, color = TextPrimary)
+                                } else {
+                                    CircularProgressIndicator(color = TextPrimary)
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    if (fetchProgress != null && fetchProgress >= 0f) "Fetching audio ${(fetchProgress * 100).toInt()}%" else "Finding audio…",
+                                    color = TextPrimary,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(track.title, color = TextPrimary, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(track.artist, fontSize = 15.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    GlassIconButton(
+                        if (track.id in offline) Icons.Rounded.DownloadDone else Icons.Rounded.Download,
+                        if (track.id in offline) "Downloaded" else "Download",
+                        tint = if (track.id in offline) Good else TextPrimary,
+                        onClick = {
+                            if (track.id in offline) AudioStore.removeDownload(track)
+                            else scope.launch {
+                                runCatching { AudioStore.download(track) }
+                                    .onFailure { PlayerController.messages.tryEmit("Download failed: ${shortError(it)}") }
+                            }
+                        },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    GlassIconButton(
+                        if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Like",
+                        tint = if (liked) PinkLight else TextPrimary,
+                        onClick = { Library.toggleLike(track) },
+                    )
+                }
+            }
+            item {
+                // Transport controls on one glass slab.
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 16.dp)
+                        .glass(RoundedCornerShape(32.dp), blurDp = 10.dp, lensDp = 24.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    val fraction = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+                    Slider(
+                        value = if (dragging) dragValue else fraction,
+                        onValueChange = { dragging = true; dragValue = it },
+                        onValueChangeFinished = {
+                            if (dur > 0) PlayerController.seekTo((dragValue * dur).toLong())
+                            dragging = false
+                        },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = Color.White,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.22f),
+                        ),
+                    )
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                        Text(formatDuration(((if (dragging) dragValue * dur else pos.toFloat()) / 1000).toInt()).ifEmpty { "0:00" }, fontSize = 12.sp, color = Muted)
+                        Spacer(Modifier.weight(1f))
+                        Text(formatDuration((dur / 1000).toInt()), fontSize = 12.sp, color = Muted)
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RoundIcon(Icons.Rounded.Shuffle, "Shuffle", 48.dp, 24.dp, tint = if (shuffle) AccentLight else TextPrimary) { PlayerController.toggleShuffle() }
+                        RoundIcon(Icons.Rounded.SkipPrevious, "Previous", 58.dp, 40.dp) { PlayerController.previous() }
+                        Box(
+                            Modifier
+                                .size(76.dp)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .clickable { PlayerController.togglePlay() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (preparing) CircularProgressIndicator(Modifier.size(30.dp), color = Color.Black, strokeWidth = 3.dp)
+                            else Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play/pause", tint = Color.Black, modifier = Modifier.size(44.dp))
+                        }
+                        RoundIcon(Icons.Rounded.SkipNext, "Next", 58.dp, 40.dp) { PlayerController.next() }
+                        RoundIcon(
+                            if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Repeat", 48.dp, 24.dp,
+                            tint = if (repeat == RepeatMode.OFF) TextPrimary else AccentLight,
+                        ) { PlayerController.cycleRepeat() }
+                    }
+                }
+            }
+            if (queue.size > index + 1) {
+                item {
+                    Text("Up next", style = SectionStyle, modifier = Modifier.padding(start = 24.dp, top = 8.dp, bottom = 8.dp))
+                }
+            }
+            itemsIndexed(queue, key = { i, t -> "$i-${t.id}" }) { i, t ->
+                if (i > index) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 2.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable { PlayerController.jumpTo(i) }
+                            .padding(start = 10.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Artwork(t.thumbnail, 46.dp, 12.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(t.title, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                SourceBadge(t.source)
+                                OfflineIndicator(t, 12.dp)
+                                Text(t.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Muted, fontSize = 12.sp)
+                            }
+                        }
+                        RoundIcon(Icons.Rounded.Close, "Remove", 44.dp, 20.dp, tint = Muted) { PlayerController.removeFromQueue(i) }
+                    }
+                }
+            }
+            item { Spacer(Modifier.navigationBarsPadding().height(16.dp)) }
         }
-        item { Spacer(Modifier.height(40.dp)) }
+        }
     }
 }
