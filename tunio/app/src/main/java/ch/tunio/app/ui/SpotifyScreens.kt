@@ -21,7 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import ch.tunio.app.engine.SpotifyAccount
 import ch.tunio.app.player.PlayerController
 import ch.tunio.app.player.shortError
+import kotlinx.coroutines.launch
 
 /** Settings card: connect a Spotify account so private playlists and Liked Songs can be imported. */
 @Composable
@@ -58,6 +62,8 @@ fun SpotifyAccountCard() {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var clientId by remember { mutableStateOf(SpotifyAccount.clientId) }
+    var pasted by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (user != null) {
             Text("Connected as $user", color = Good, fontWeight = FontWeight.SemiBold)
@@ -106,12 +112,27 @@ fun SpotifyAccountCard() {
             enabled = clientId.length >= 20,
             onClick = {
                 SpotifyAccount.clientId = clientId
-                SpotifyAccount.beginLogin(context) { message ->
-                    PlayerController.messages.tryEmit(message)
-                    if (SpotifyAccount.loggedIn) {
-                        Ui.tab(Route.Library)
-                        Ui.push(Route.SpotifyImport)
-                    }
+                SpotifyAccount.beginLogin(context) { message -> onSpotifyLogin(message) }
+            },
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "If the browser ends on \"This site can't be reached\" (127.0.0.1…), copy that page's address " +
+                "(or Share → Tunio) and paste it here:",
+            color = Muted, fontSize = 12.sp, lineHeight = 17.sp,
+        )
+        GlassTextField(
+            value = pasted,
+            onValueChange = { pasted = it },
+            placeholder = "http://127.0.0.1:43819/callback?code=…",
+            leading = Icons.Rounded.ContentPaste,
+            modifier = Modifier.fillMaxWidth(),
+            trailing = {
+                if (pasted.isNotBlank()) {
+                    GlassIconButton(Icons.Rounded.Check, "Finish login", size = 40.dp, onClick = {
+                        val text = pasted
+                        scope.launch { onSpotifyLogin(SpotifyAccount.finishFromPaste(text)); pasted = "" }
+                    })
                 }
             },
         )

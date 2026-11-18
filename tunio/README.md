@@ -30,7 +30,8 @@ Songs start streaming as soon as yt-dlp has found the audio URL. They're saved w
 1. Go to <https://developer.spotify.com/dashboard>, log in with your Spotify account and **Create app**. Any name and description will do.
 2. **Redirect URI:** `http://127.0.0.1:43819/callback`. Type it exactly, with `127.0.0.1`, not `localhost`. Spotify no longer accepts custom addresses like `tunio://…` for new apps. Under *APIs used*, tick **Web API**, then save.
 3. Open the app's settings, copy the **Client ID** and paste it in Tunio → Settings → *Spotify account*.
-4. Tap **Log in with Spotify** and accept. The browser then shows "Logged in to Spotify": tap *Back to Tunio*. While you log in, Tunio listens on that local address on your phone only, then stops.
+4. Tap **Log in with Spotify** and accept. The browser then shows "Logged in to Spotify": tap *Back to Tunio*. While you log in, Tunio shows a small "Waiting for Spotify login…" notification. That keeps Android from freezing Tunio while the browser is in front. Tunio listens on that local address on your phone only, then stops.
+   If the browser still ends on *This site can't be reached* (127.0.0.1…), share that page to Tunio (Share → Tunio), or copy its address into the box under *Log in with Spotify*. The login code is in that address, so Tunio finishes from there.
 
 Tunio only asks to *read* playlists and saved songs. Nothing is changed on your Spotify account. If Spotify says your account isn't allowed, add your account's e-mail under *User Management* in the dashboard app.
 Spotify doesn't let apps read the playlists it generates itself (Daily Mix, Discover Weekly, …). Copy-paste the songs from the desktop app instead.

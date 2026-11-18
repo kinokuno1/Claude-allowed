@@ -12,7 +12,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -88,11 +90,15 @@ object SpotifyAccount {
         loginJob?.cancel()
         runCatching { server?.close() }
         loginJob = loginScope.launch {
+            var mySocket: ServerSocket? = null
             val message = try {
+                // Stay awake while the browser is in front, or Android freezes Tunio and the redirect times out.
+                withContext(Dispatchers.Main) { LoginService.start(app) }
                 val socket = ServerSocket()
                 socket.reuseAddress = true
                 socket.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), LOOPBACK_PORT))
                 socket.soTimeout = 10 * 60_000 // give up after 10 minutes
+                mySocket = socket
                 server = socket
                 val url = authorizeUrl()
                 withContext(Dispatchers.Main) {
@@ -107,13 +113,32 @@ object SpotifyAccount {
             } catch (e: java.net.BindException) {
                 "Couldn't start the login listener (port $LOOPBACK_PORT busy). Close other apps and try again."
             } catch (e: Throwable) {
+                // Closing the socket is how a cancelled login stops waiting: don't report that as an error.
+                if (!isActive) throw CancellationException("login replaced")
                 "Spotify login failed: ${e.message ?: e.javaClass.simpleName}"
             } finally {
-                runCatching { server?.close() }
-                server = null
+                runCatching { mySocket?.close() }
+                // Only clean up shared state if a newer login hasn't replaced this one.
+                if (server === mySocket || server == null) {
+                    server = null
+                    if (isActive) withContext(NonCancellable + Dispatchers.Main) { LoginService.stop(app) }
+                }
             }
             withContext(Dispatchers.Main) { onDone(message) }
         }
+    }
+
+    /** Backup path: the user pastes/shares the browser's 127.0.0.1/callback address (it contains the login code). */
+    fun pastedCallback(text: String): Uri? =
+        Regex("https?://(?:127\\.0\\.0\\.1|localhost):$LOOPBACK_PORT/callback\\?\\S+").find(text)?.value?.let { Uri.parse(it) }
+
+    suspend fun finishFromPaste(text: String): String {
+        val uri = pastedCallback(text) ?: return "That's not the Spotify login address (it starts with http://127.0.0.1:$LOOPBACK_PORT/callback)"
+        loginJob?.cancel() // the waiting listener isn't needed anymore
+        runCatching { server?.close() }
+        server = null
+        withContext(Dispatchers.Main) { LoginService.stop(app) }
+        return runCatching { finishLogin(uri) }.getOrElse { "Spotify login failed: ${it.message ?: it.javaClass.simpleName}" }
     }
 
     /** Serves the browser until it requests /callback; answers with a small "you can go back" page. */

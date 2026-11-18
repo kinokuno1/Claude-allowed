@@ -70,6 +70,15 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.launch
 
+/** Shows the login result and, on success, opens the Spotify playlist list. */
+fun onSpotifyLogin(message: String) {
+    PlayerController.messages.tryEmit(message)
+    if (SpotifyAccount.loggedIn) {
+        Ui.tab(Route.Library)
+        Ui.push(Route.SpotifyImport)
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private var controller: ListenableFuture<MediaController>? = null
 
@@ -94,17 +103,16 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == Intent.ACTION_VIEW && data?.scheme == "tunio" && data.host == "spotify-callback") {
             intent.data = null // don't handle twice on rotation
             lifecycleScope.launch {
-                val msg = runCatching { SpotifyAccount.finishLogin(data) }.getOrElse { "Spotify login failed: ${shortError(it)}" }
-                PlayerController.messages.tryEmit(msg)
-                if (SpotifyAccount.loggedIn) {
-                    Ui.tab(Route.Library)
-                    Ui.push(Route.SpotifyImport)
-                }
+                onSpotifyLogin(runCatching { SpotifyAccount.finishLogin(data) }.getOrElse { "Spotify login failed: ${shortError(it)}" })
             }
             return
         }
         if (intent?.action == Intent.ACTION_SEND) {
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+            if (SpotifyAccount.pastedCallback(text) != null) {
+                lifecycleScope.launch { onSpotifyLogin(SpotifyAccount.finishFromPaste(text)) }
+                return
+            }
             SearchModel.openLink(text)
         }
     }
