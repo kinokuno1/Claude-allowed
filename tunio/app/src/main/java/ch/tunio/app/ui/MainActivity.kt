@@ -1,6 +1,27 @@
 package ch.tunio.app.ui
 
+import android.Manifest
 import android.content.ComponentName
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -9,8 +30,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -29,7 +48,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,6 +78,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import ch.tunio.app.data.Library
 import ch.tunio.app.engine.SpotifyAccount
 import ch.tunio.app.player.PlaybackService
 import ch.tunio.app.player.PlayerController
@@ -89,6 +108,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        askForNotifications()
         handleShare(intent)
         setContent { TunioTheme { App() } }
     }
@@ -96,6 +116,18 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleShare(intent)
+    }
+
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /** Android 13+: needed to show download progress and the Spotify-login notice (asked once). */
+    private fun askForNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        val prefs = getSharedPreferences("ui", 0)
+        if (prefs.getBoolean("asked_notifications", false)) return
+        prefs.edit().putBoolean("asked_notifications", true).apply()
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun handleShare(intent: Intent?) {
@@ -130,12 +162,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Tab(val route: Route, val label: String, val icon: ImageVector)
+/** Outlined icon when not selected, filled when selected. */
+private data class Tab(val route: Route, val label: String, val icon: ImageVector, val selectedIcon: ImageVector)
 
 private val tabs = listOf(
-    Tab(Route.Home, "Home", Icons.Rounded.Home),
-    Tab(Route.Search, "Search", Icons.Rounded.Search),
-    Tab(Route.Library, "Library", Icons.Rounded.LibraryMusic),
+    Tab(Route.Home, "Home", Icons.Outlined.Home, Icons.Rounded.Home),
+    Tab(Route.Search, "Search", Icons.Outlined.Search, Icons.Rounded.Search),
+    Tab(Route.Library, "Library", Icons.Outlined.LibraryMusic, Icons.Rounded.LibraryMusic),
 )
 
 @Composable
@@ -163,7 +196,20 @@ private fun App() {
     Box(Modifier.fillMaxSize().background(Bg)) {
         // Everything the floating bars refract: background light + the current screen.
         Box(Modifier.fillMaxSize().layerBackdrop(screenBackdrop)) {
-            Aurora(Modifier.layerBackdrop(lightBackdrop))
+            // Menus get a plain gradient; inside a playlist, its cover blurred behind everything.
+            val lib by Library.data.collectAsState()
+            val cover = when (route) {
+                is Route.PlaylistPage -> lib.playlists.find { it.id == route.id }?.let { p ->
+                    p.cover ?: p.trackIds.firstOrNull()?.let { lib.tracks[it]?.thumbnail }
+                }
+                Route.Liked -> lib.liked.firstOrNull()?.let { lib.tracks[it]?.thumbnail }
+                else -> null
+            }
+            if (route is Route.PlaylistPage || route == Route.Liked) {
+                CoverBackground(cover, Modifier.layerBackdrop(lightBackdrop))
+            } else {
+                GradientBackground(Modifier.layerBackdrop(lightBackdrop))
+            }
             CompositionLocalProvider(LocalBottomInset provides chromeHeight, LocalGlassBackdrop provides lightBackdrop) {
                 Box(Modifier.fillMaxSize().navigationBarsPadding().imePadding()) {
                     when (val r = route) {
@@ -212,7 +258,11 @@ private fun App() {
     }
 }
 
-/** Floating liquid-glass tab bar; a brighter glass drop slides under the selected tab. */
+/**
+ * Floating liquid-glass tab bar. Switching tabs: the glass pill first braces (squeezes in), then its
+ * leading edge shoots toward the new tab while the trailing edge lags behind — so it stretches like a drop —
+ * and both edges overshoot and wobble before settling.
+ */
 @Composable
 private fun GlassTabBar(backdrop: Backdrop, selected: Route) {
     val shape = RoundedCornerShape(32.dp)
@@ -223,18 +273,47 @@ private fun GlassTabBar(backdrop: Backdrop, selected: Route) {
             .height(64.dp)
             .chromeGlass(backdrop, shape),
     ) {
-        val itemWidth = maxWidth / tabs.size
-        val lensOffset by animateDpAsState(
-            targetValue = itemWidth * index,
-            animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
-            label = "lens",
-        )
-        // The moving lens.
+        val density = LocalDensity.current
+        val itemPx = with(density) { (maxWidth / tabs.size).toPx() }
+        val left = remember(itemPx) { Animatable(index * itemPx) }
+        val right = remember(itemPx) { Animatable((index + 1) * itemPx) }
+        val squeeze = remember { Animatable(1f) }
+
+        LaunchedEffect(index, itemPx) {
+            val targetLeft = index * itemPx
+            val targetRight = targetLeft + itemPx
+            if (left.value == targetLeft && right.value == targetRight) return@LaunchedEffect
+            val toRight = targetLeft > left.value
+            // 1. Brace: a quick squeeze.
+            squeeze.animateTo(0.86f, tween(durationMillis = 90, easing = FastOutSlowInEasing))
+            coroutineScope {
+                // 2. Release with a bouncy spring.
+                launch { squeeze.animateTo(1f, spring(dampingRatio = 0.32f, stiffness = 520f)) }
+                // 3. Leading edge rushes ahead, trailing edge follows later and softer -> stretch, then jiggle.
+                val lead = if (toRight) right else left
+                val trail = if (toRight) left else right
+                launch { lead.animateTo(if (toRight) targetRight else targetLeft, spring(dampingRatio = 0.5f, stiffness = 380f)) }
+                launch {
+                    delay(70)
+                    trail.animateTo(if (toRight) targetLeft else targetRight, spring(dampingRatio = 0.38f, stiffness = 230f))
+                }
+            }
+        }
+
+        // The jelly pill.
         Box(
             Modifier
-                .offset(x = lensOffset)
-                .width(itemWidth)
+                .layout { measurable, constraints ->
+                    val l = left.value
+                    val w = (right.value - l).coerceAtLeast(1f).roundToInt()
+                    val placeable = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+                    layout(constraints.maxWidth, placeable.height) { placeable.place(l.roundToInt(), 0) }
+                }
                 .fillMaxHeight()
+                .graphicsLayer {
+                    scaleX = squeeze.value
+                    scaleY = 1f - (1f - squeeze.value) * 0.6f
+                }
                 .padding(6.dp)
                 .clip(RoundedCornerShape(26.dp))
                 .background(Color.White.copy(alpha = 0.10f))
@@ -243,24 +322,77 @@ private fun GlassTabBar(backdrop: Backdrop, selected: Route) {
         )
         Row(Modifier.fillMaxSize()) {
             tabs.forEachIndexed { i, t ->
-                val active = i == index
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { Ui.tab(t.route) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                ) {
-                    Icon(t.icon, t.label, tint = if (active) TextPrimary else Muted, modifier = Modifier.size(24.dp))
-                    Text(
-                        t.label,
-                        color = if (active) TextPrimary else Muted,
-                        fontSize = 11.sp,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                    )
-                }
+                TabItem(t, active = i == index, modifier = Modifier.weight(1f))
             }
         }
+    }
+}
+
+/** One tab: outlined + muted when idle; when selected it turns filled, flashes and wiggles a little. */
+@Composable
+private fun TabItem(tab: Tab, active: Boolean, modifier: Modifier) {
+    val flash = remember { Animatable(0f) }
+    val wiggle = remember { Animatable(0f) }
+    val pop = remember { Animatable(1f) }
+    LaunchedEffect(active) {
+        if (!active) return@LaunchedEffect
+        launch {
+            flash.snapTo(1f)
+            flash.animateTo(0f, tween(durationMillis = 520, easing = LinearOutSlowInEasing))
+        }
+        launch {
+            pop.snapTo(0.85f)
+            pop.animateTo(1f, spring(dampingRatio = 0.35f, stiffness = 600f))
+        }
+        wiggle.snapTo(0f)
+        wiggle.animateTo(0f, keyframes {
+            durationMillis = 460
+            -9f at 70
+            7f at 160
+            -4f at 250
+            2f at 340
+        })
+    }
+    Column(
+        modifier
+            .fillMaxHeight()
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { Ui.tab(tab.route) },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            // Flash: a soft glow that blooms and fades behind the icon.
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .graphicsLayer {
+                        alpha = flash.value
+                        scaleX = 1f + (1f - flash.value) * 0.5f
+                        scaleY = scaleX
+                    }
+                    .background(
+                        Brush.radialGradient(listOf(AccentLight.copy(alpha = 0.55f), Color.Transparent)),
+                        CircleShape,
+                    ),
+            )
+            Icon(
+                if (active) tab.selectedIcon else tab.icon,
+                tab.label,
+                tint = if (active) TextPrimary else Muted,
+                modifier = Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        rotationZ = wiggle.value
+                        scaleX = pop.value
+                        scaleY = pop.value
+                    },
+            )
+        }
+        Text(
+            tab.label,
+            color = if (active) TextPrimary else Muted,
+            fontSize = 11.sp,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+        )
     }
 }

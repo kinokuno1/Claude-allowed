@@ -96,6 +96,36 @@ object Parsing {
         )
     }
 
+    /** The 11-character YouTube video id behind a track (its own id, or the YouTube match of a Spotify song). */
+    fun youtubeId(track: Track): String? {
+        if (track.source == Source.YOUTUBE && track.id.startsWith("yt_") && track.id.length == 14) return track.id.removePrefix("yt_")
+        val url = track.matchedUrl ?: track.url ?: return null
+        return Regex("(?:[?&]v=|youtu\\.be/|/shorts/)([A-Za-z0-9_-]{11})").find(url)?.groupValues?.get(1)
+    }
+
+    private fun normTitle(t: String) = t.lowercase().replace(Regex("\\(.*?\\)|\\[.*?]"), "").replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+
+    /**
+     * Autoplay: keeps songs from a YouTube Mix that aren't already queued/recent, skipping long videos
+     * (compilations, 1-hour loops) and re-uploads of the same title.
+     */
+    fun pickSimilar(candidates: List<Track>, exclude: Collection<Track>, max: Int = 10): List<Track> {
+        val ids = exclude.map { it.id }.toMutableSet()
+        val titles = exclude.map { normTitle(it.title) }.toMutableSet()
+        val out = mutableListOf<Track>()
+        for (c in candidates) {
+            if (out.size >= max) break
+            if (c.id in ids) continue
+            if (c.durationSec > 600) continue
+            val nt = normTitle(c.title)
+            if (nt.isEmpty() || nt in titles) continue
+            out += c
+            ids += c.id
+            titles += nt
+        }
+        return out
+    }
+
     /** Parses `yt-dlp -j -f ba/b` output into a streamable URL, if the chosen format is plain HTTP(S). */
     fun streamInfo(text: String): StreamInfo? {
         val start = text.indexOf('{')

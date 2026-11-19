@@ -19,7 +19,8 @@ Open the APK on your phone and allow "install unknown apps" if Android asks. The
 | **Links** | Paste a link in Search, or use **Share → Tunio** from the YouTube, SoundCloud, TikTok or Spotify app. Works for songs, playlists, albums, channels and TikTok profiles. Lists can be saved as playlists. |
 | **Spotify** | Spotify audio is DRM-locked. Tunio reads the song info (title, artist, length) from Spotify's public embed page and plays the best-matching YouTube upload. The match is chosen by duration and title, and "live", "cover" and "remix" versions are avoided. |
 | **Private Spotify playlists** | Library → **Spotify**: log in once and import any of your playlists (private ones too) or your Liked Songs. This needs a free Spotify developer app (steps below). No-login alternative: in the Spotify **desktop** app, select songs (Ctrl+A), copy them (Ctrl+C) and paste into Tunio's Search. |
-| **Offline** | Tap ⋮ → *Download* on a song, or *Download N* on a playlist or Liked songs. Downloads are listed in Library → Downloads and play with no connection. |
+| **Offline** | Tap ⋮ → *Download* on a song, or *Download N* on a playlist or Liked songs. Downloads keep going when you leave the app or lock the phone, with a progress notification. They are listed in Library → Downloads and play with no connection. |
+| **Autoplay** | When 3 or fewer songs are left and you're on Wi-Fi, Tunio adds similar songs from YouTube's "Mix" for the current song, like Spotify's autoplay. On Wi-Fi it also loads the next songs in the background. You can turn this off in Settings. |
 | **Library** | Liked songs, playlists (create/rename/delete), recently played. |
 | **Player** | Full-screen player, queue (play next / add to queue), shuffle, repeat, seek. Background playback with lock-screen and notification controls. |
 
@@ -39,6 +40,7 @@ Spotify doesn't let apps read the playlists it generates itself (Daily Mix, Disc
 ## Look
 
 "Liquid glass" design using [Backdrop](https://github.com/Kyant0/AndroidLiquidGlass): the floating tab bar, mini player, buttons and cards are glass that **bends (refracts) and blurs** what's behind them through a lens at their edges, with a little chromatic dispersion. Scroll a list under the tab bar to see it. Refraction needs Android 13+ and blur needs Android 12+. Older phones get a frosted look instead.
+Menus (Home, Search, Library, Settings) sit on a plain violet→pink colour gradient. Inside a playlist, and in the player, the background is the cover art, heavily blurred. In the tab bar the glass pill braces, then stretches toward the tab you tap with a jiggly overshoot. Icons are outlined when idle and filled when selected, with a small flash and wiggle.
 Colours are the same violet/pink as before. Text and icon colours were checked against their worst-case backgrounds, including glass over the brightest light and the player over a pure-white cover, so nothing dark sits on black. The lowest text contrast is 5.6:1, above the WCAG 4.5:1 minimum.
 
 ## How it works

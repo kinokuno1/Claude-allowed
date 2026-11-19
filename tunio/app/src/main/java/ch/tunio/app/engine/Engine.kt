@@ -152,6 +152,22 @@ object Engine {
         return if (result.sourceUrl == null) result.copy(sourceUrl = url) else result
     }
 
+    /**
+     * Songs similar to [track], like Spotify's autoplay: YouTube's own "Mix" for that song
+     * (https://www.youtube.com/watch?v=ID&list=RDID). Non-YouTube songs are first looked up on YouTube.
+     */
+    suspend fun similar(track: Track, exclude: Collection<Track>, max: Int = 10): List<Track> {
+        val id = Parsing.youtubeId(track)
+            ?: Parsing.youtubeId(search(Source.YOUTUBE, track.searchQuery, count = 1).firstOrNull() ?: return emptyList())
+            ?: return emptyList()
+        val req = YoutubeDLRequest("https://www.youtube.com/watch?v=$id&list=RD$id")
+            .addOption("--flat-playlist")
+            .addOption("-J")
+            .addOption("--playlist-items", "1:40")
+        val mix = Parsing.parseResult(run(req).out, Source.YOUTUBE).tracks
+        return Parsing.pickSimilar(mix, exclude + track, max)
+    }
+
     /** Finds the YouTube upload that best matches a Spotify track. */
     suspend fun matchOnYouTube(track: Track): Track {
         val candidates = search(Source.YOUTUBE, track.searchQuery + " audio", count = 6)

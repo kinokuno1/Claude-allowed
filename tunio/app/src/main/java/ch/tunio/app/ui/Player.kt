@@ -185,22 +185,8 @@ fun NowPlayingScreen() {
     Box(Modifier.fillMaxSize().background(Bg)) {
         // Background: the cover art, hugely blurred, under a dark wash so all text stays light-on-dark.
         // The glass controls on top refract this layer.
-        Box(Modifier.fillMaxSize().layerBackdrop(playerBackdrop)) {
-            Aurora()
-            if (canBlur && track.thumbnail != null) {
-                AsyncImage(
-                    model = track.thumbnail,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = 0.60f }.blur(90.dp),
-                )
-            }
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.62f), Color.Black.copy(alpha = 0.74f), Color.Black.copy(alpha = 0.86f))),
-                ),
-            )
-        }
+        // The glass controls on top refract this layer (the blurred cover).
+        CoverBackground(track.thumbnail, Modifier.layerBackdrop(playerBackdrop))
 
         CompositionLocalProvider(LocalGlassBackdrop provides playerBackdrop) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -266,10 +252,7 @@ fun NowPlayingScreen() {
                         tint = if (track.id in offline) Good else TextPrimary,
                         onClick = {
                             if (track.id in offline) AudioStore.removeDownload(track)
-                            else scope.launch {
-                                runCatching { AudioStore.download(track) }
-                                    .onFailure { PlayerController.messages.tryEmit("Download failed: ${shortError(it)}") }
-                            }
+                            else AudioStore.downloadAll(listOf(track))
                         },
                     )
                     Spacer(Modifier.width(8.dp))

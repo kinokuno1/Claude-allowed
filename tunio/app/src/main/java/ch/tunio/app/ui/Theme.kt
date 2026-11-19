@@ -8,7 +8,11 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,7 +23,6 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -67,7 +70,7 @@ fun sourceColor(s: Source): Color = when (s) {
 
 // ---- Liquid glass (Kyant0's Backdrop library: real lens refraction + blur of what's behind)
 
-/** What in-content glass refracts: the background light layer. Null = draw the frosted fallback. */
+/** What in-content glass refracts: the background layer (gradient or blurred cover). Null = draw the frosted fallback. */
 val LocalGlassBackdrop = staticCompositionLocalOf<Backdrop?> { null }
 
 object Glass {
@@ -143,24 +146,41 @@ fun Modifier.chromeGlass(backdrop: Backdrop, shape: RoundedCornerShape): Modifie
             .border(1.dp, Glass.rim, shape)
     }
 
-/** Background light behind the whole app; it is what the glass bends. Static to save battery. */
+/** Menus (Home, Search, Library, Settings): a plain diagonal colour gradient, no blur and no spots. */
+val MenuGradient = Brush.linearGradient(
+    0f to Color(0xFF33255A), // Accent at 30 % over Bg
+    0.55f to Bg,
+    1f to Color(0xFF3A1A2D), // Accent2 at 20 % over Bg
+)
+
 @Composable
-fun Aurora(modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxSize()) {
-        drawRect(Bg)
-        val w = size.width
-        val h = size.height
-        fun blob(color: Color, x: Float, y: Float, r: Float, alpha: Float) {
-            val center = Offset(x, y)
-            drawCircle(Brush.radialGradient(listOf(color.copy(alpha = alpha), Color.Transparent), center, r), r, center)
+fun GradientBackground(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize().background(Bg).background(MenuGradient))
+}
+
+/**
+ * Inside a playlist (and the player): the cover art, hugely blurred, under a dark wash so all text stays
+ * light-on-dark (checked against a pure-white cover). Without a cover or before Android 12: the gradient.
+ */
+@Composable
+fun CoverBackground(cover: String?, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize().background(Bg)) {
+        if (cover == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            Box(Modifier.fillMaxSize().background(MenuGradient))
+        } else {
+            Box(Modifier.fillMaxSize().background(MenuGradient))
+            AsyncImage(
+                model = cover,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = 0.60f }.blur(90.dp),
+            )
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.62f), Color.Black.copy(alpha = 0.74f), Color.Black.copy(alpha = 0.86f))),
+                ),
+            )
         }
-        blob(Accent, w * 0.18f, h * 0.08f, w * 0.95f, 0.30f)
-        blob(Accent2, w * 0.85f, h * 0.42f, w * 0.80f, 0.20f)
-        blob(Color(0xFF3B82F6), w * 0.25f, h * 0.82f, w * 0.90f, 0.14f)
-        // A few small bright specks give the refraction something to bend, like light through water.
-        blob(AccentLight, w * 0.72f, h * 0.16f, w * 0.10f, 0.35f)
-        blob(PinkLight, w * 0.12f, h * 0.55f, w * 0.08f, 0.30f)
-        blob(Color(0xFF93C5FD), w * 0.80f, h * 0.74f, w * 0.09f, 0.30f)
     }
 }
 

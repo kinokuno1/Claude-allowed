@@ -22,7 +22,15 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import ch.tunio.app.data.Library
 import ch.tunio.app.data.Track
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import ch.tunio.app.engine.AudioStore
+import ch.tunio.app.engine.Engine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -58,7 +66,67 @@ object PlayerController {
 
     val current: Track? get() = queue.value.getOrNull(index.value)
 
+    private lateinit var app: Context
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var autoplayJob: Job? = null
+    private var preloadJob: Job? = null
+
+    /** Autoplay: when 3 or fewer songs are left and you're on Wi-Fi, add similar songs (setting, default on). */
+    val autoplay = MutableStateFlow(true)
+
+    fun setAutoplay(on: Boolean) {
+        autoplay.value = on
+        app.getSharedPreferences("player", 0).edit().putBoolean("autoplay", on).apply()
+        if (on) onQueuePosition()
+    }
+
+    /** Wi-Fi / Ethernet (not mobile data, not a metered hotspot). */
+    private fun onWifi(): Boolean {
+        val cm = app.getSystemService(ConnectivityManager::class.java) ?: return false
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) &&
+            (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+    }
+
+    /**
+     * Called whenever the current song changes. On Wi-Fi:
+     *  - if 3 or fewer songs are left, fetch similar songs (YouTube Mix of the current one) and queue them;
+     *  - preload the next 2 songs in the background so they start instantly (and survive losing Wi-Fi).
+     */
+    private fun onQueuePosition() {
+        if (exo.mediaItemCount == 0 || !onWifi()) return
+        val idx = exo.currentMediaItemIndex
+        val remaining = exo.mediaItemCount - idx - 1
+        val seed = current ?: return
+        if (autoplay.value && remaining <= 3 && repeat.value == RepeatMode.OFF && autoplayJob?.isActive != true) {
+            autoplayJob = scope.launch {
+                val queued = queue.value
+                val recent = Library.tracks(Library.data.value.recent.take(30))
+                val similar = runCatching { Engine.similar(seed, queued + recent) }.getOrDefault(emptyList())
+                    .filter { t -> queue.value.none { it.id == t.id } }
+                if (similar.isNotEmpty() && exo.mediaItemCount > 0) {
+                    exo.addMediaItems(similar.map(::item))
+                    messages.tryEmit("Autoplay: added ${similar.size} similar songs")
+                    preloadNext()
+                }
+            }
+        }
+        preloadNext()
+    }
+
+    private fun preloadNext() {
+        if (preloadJob?.isActive == true) return
+        val upcoming = queue.value.drop(exo.currentMediaItemIndex + 1).take(2)
+            .filter { AudioStore.localFile(it) == null && !StreamCache.isFullyCached(it.id) }
+        if (upcoming.isEmpty()) return
+        preloadJob = scope.launch(Dispatchers.IO) {
+            for (t in upcoming) runCatching { AudioStore.ensure(t) }
+        }
+    }
+
     fun init(context: Context) {
+        app = context.applicationContext
+        autoplay.value = app.getSharedPreferences("player", 0).getBoolean("autoplay", true)
         StreamCache.init(context)
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -98,6 +166,7 @@ object PlayerController {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 syncQueue()
                 current?.let { Library.addRecent(it) }
+                onQueuePosition()
             }
 
             override fun onPlayerError(error: PlaybackException) {

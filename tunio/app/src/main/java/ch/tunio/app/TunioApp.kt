@@ -13,6 +13,7 @@ class TunioApp : Application() {
         Library.init(this)
         AudioStore.init(this)
         SpotifyAccount.init(this)
+        AudioStore.onFailure = { PlayerController.messages.tryEmit(it) }
         PlayerController.init(this)
         Engine.start(this)
     }

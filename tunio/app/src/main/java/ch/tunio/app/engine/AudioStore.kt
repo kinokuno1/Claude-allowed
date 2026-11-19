@@ -47,6 +47,7 @@ object AudioStore {
     val progress = MutableStateFlow<Map<String, Float>>(emptyMap())
 
     fun init(context: Context) {
+        app = context.applicationContext
         offlineDir = File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: File(context.filesDir, "music"), "offline").apply { mkdirs() }
         cacheDir = File(context.cacheDir, "audio").apply { mkdirs() }
         offline.value = offlineDir.listFiles()?.filter { it.isFile && !it.name.contains(".part") }?.map { it.name.substringBeforeLast('.') }?.toSet().orEmpty()
@@ -125,10 +126,48 @@ object AudioStore {
         offline.update { it + track.id }
     }
 
-    /** Bulk offline downloads run 2 at a time, so the song you're playing never waits behind them. */
-    fun downloadAll(tracks: List<Track>) {
-        tracks.filterNot { isOffline(it.id) }.forEach { t -> scope.launch { limiter.withPermit { runCatching { download(t) } } } }
+    /** Progress of the offline download queue (what the notification shows). */
+    data class Queue(val total: Int = 0, val done: Int = 0, val failed: Int = 0, val current: String? = null) {
+        val pending: Int get() = total - done - failed
     }
+
+    val queue = MutableStateFlow(Queue())
+    private val queued = mutableSetOf<String>()
+    private lateinit var app: Context
+
+    /** Called with a message when a queued download fails (shown as a snackbar). */
+    var onFailure: ((String) -> Unit)? = null
+
+    /**
+     * Offline downloads (one song or a whole playlist). They run 2 at a time inside [DownloadService], a
+     * foreground service, so they keep going when you leave the app or lock the phone.
+     */
+    fun downloadAll(tracks: List<Track>) {
+        val fresh = synchronized(queued) {
+            tracks.filter { !isOffline(it.id) && queued.add(it.id) }
+        }
+        if (fresh.isEmpty()) return
+        fresh.forEach { Library.remember(it) }
+        queue.update { q -> (if (q.pending == 0) Queue() else q).let { it.copy(total = it.total + fresh.size) } }
+        DownloadService.start(app)
+        fresh.forEach { t ->
+            scope.launch {
+                limiter.withPermit {
+                    queue.update { it.copy(current = t.title) }
+                    val result = runCatching { download(t) }
+                    synchronized(queued) { queued.remove(t.id) }
+                    queue.update { if (result.isSuccess) it.copy(done = it.done + 1) else it.copy(failed = it.failed + 1) }
+                    result.exceptionOrNull()?.let { e ->
+                        if (e !is kotlinx.coroutines.CancellationException) {
+                            onFailure?.invoke("Download failed: ${t.title}: ${e.message?.lines()?.lastOrNull { l -> l.isNotBlank() }?.take(120) ?: "error"}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun isQueued(id: String) = synchronized(queued) { id in queued }
 
     fun removeDownload(track: Track) {
         offlineDir.listFiles { f -> f.name.startsWith("${track.id}.") }?.forEach { it.delete() }

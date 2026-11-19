@@ -46,6 +46,8 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -554,6 +556,29 @@ fun SettingsScreen() {
             if (status is EngineStatus.Failed) {
                 Spacer(Modifier.height(8.dp))
                 GlassButton("Retry starting engine", onClick = { Engine.start(context) })
+            }
+        }
+        SettingsCard("Autoplay") {
+            val autoplay by PlayerController.autoplay.collectAsState()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "When 3 or fewer songs are left and you're on Wi-Fi, add similar songs (like Spotify's autoplay) " +
+                        "and load the next songs in the background.",
+                    color = Muted, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(12.dp))
+                Switch(
+                    checked = autoplay,
+                    onCheckedChange = { PlayerController.setAutoplay(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = AccentDeep,
+                        checkedBorderColor = Color.Transparent,
+                        uncheckedThumbColor = Muted,
+                        uncheckedTrackColor = Glass.fill,
+                        uncheckedBorderColor = Muted,
+                    ),
+                )
             }
         }
         SettingsCard("Spotify account") { SpotifyAccountCard() }

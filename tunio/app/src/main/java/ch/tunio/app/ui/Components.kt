@@ -374,10 +374,7 @@ fun TrackMenu(track: Track, playlistId: String? = null, tint: Color = Muted) {
             } else {
                 MenuItem("Download (offline)", Icons.Rounded.Download) {
                     open = false
-                    scope.launch {
-                        runCatching { AudioStore.download(track) }
-                            .onFailure { PlayerController.messages.tryEmit("Download failed: ${shortError(it)}") }
-                    }
+                    AudioStore.downloadAll(listOf(track))
                 }
             }
             if (playlistId != null) {

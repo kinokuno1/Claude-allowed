@@ -14,8 +14,8 @@ WHITE=(255,255,255); BLACK=(0,0,0)
 Bg=hx('0E0E12'); MenuBg=hx('1E1C28'); Accent=hx('8B5CF6'); Accent2=hx('EC4899'); Blue=hx('3B82F6')
 TextPrimary=hx('F7F7FA'); Muted=hx('C8C8D2'); AccentLight=hx('C9B6FF'); PinkLight=hx('FFA8D8'); Good=hx('6EE7B7'); Err=hx('FECACA')
 
-aurora_peak = over(Accent,0.30,Bg)                    # brightest point of the background light
-aurora_pink = over(Accent2,0.20,Bg)
+aurora_peak = over(Accent,0.30,Bg)                    # violet end of the menu gradient (#33255A)
+aurora_pink = over(Accent2,0.20,Bg)                   # pink end of the menu gradient (#3A1A2D)
 vib=lambda c: tuple(min(255,round(v*1.15)) for v in c)
 def glass(base, strong=False): return over(WHITE, 0.10 if strong else 0.06, over(Bg,0.40, vib(base)))
 chrome = over(WHITE,0.05, over(Bg,0.50, vib(aurora_peak)))  # tab bar / mini player over brightest background
@@ -26,11 +26,11 @@ np_top, np_mid, np_bot = over(BLACK,0.62,art), over(BLACK,0.74,art), over(BLACK,
 lens = over(WHITE,0.10, chrome)
 
 backgrounds = {
- 'Bg':Bg,'aurora peak':aurora_peak,'aurora pink':aurora_pink,'glass on aurora':glass(aurora_peak),
- 'strong glass on aurora':glass(aurora_peak,True),'menu/dialog/snackbar':MenuBg,'glass bar (blur)':chrome,
+ 'Bg':Bg,'menu gradient violet':aurora_peak,'menu gradient pink':aurora_pink,'glass on menu gradient':glass(aurora_peak),
+ 'strong glass on gradient':glass(aurora_peak,True),'menu/dialog/snackbar':MenuBg,'glass bar (blur)':chrome,
  'glass bar (Android<12)':chrome_fallback,'tab lens':lens,
- 'player top (white cover)':np_top,'player mid (white cover)':np_mid,'player bottom (white cover)':np_bot,
- 'player glass slab (white cover)':glass(np_mid),
+ 'player/playlist top (white cover)':np_top,'player/playlist mid (white cover)':np_mid,'player/playlist bottom (white cover)':np_bot,
+ 'glass on white cover':glass(np_mid),
 }
 texts = {'TextPrimary':TextPrimary,'Muted':Muted,'AccentLight':AccentLight,'PinkLight':PinkLight,'Good':Good,'ErrorText':Err}
 worst=99; fails=[]
