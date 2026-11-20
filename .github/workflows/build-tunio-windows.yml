@@ -75,6 +75,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: tunio-latest
+          name: Tunio (latest build)
+          target_commitish: ${{ github.sha }}
           prerelease: true
           make_latest: false
+          body: |
+            **Android:** download **Tunio-arm64.apk** (almost every phone since 2017). If it won't install, use Tunio-universal.apk.
+            **Windows 10/11:** download **Tunio.exe** and double-click it. Windows may say "Windows protected your PC" because the app isn't signed: click *More info*, then *Run anyway*.
           files: tunio-desktop/dist/Tunio.exe
