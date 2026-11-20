@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tunio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Liquid glass: a displacement map that bends what's behind the glass at its edges (a lens). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="lens" x="0" y="0" width="1" height="1" primitiveUnits="objectBoundingBox" color-interpolation-filters="sRGB">
+      <feImage x="0" y="0" width="1" height="1" preserveAspectRatio="none" result="map"
+        href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='0' x2='1'%3E%3Cstop offset='0' stop-color='%23ff0000'/%3E%3Cstop offset='.2' stop-color='%23800000'/%3E%3Cstop offset='.8' stop-color='%23800000'/%3E%3Cstop offset='1' stop-color='%23000000'/%3E%3C/linearGradient%3E%3ClinearGradient id='g' x1='0' x2='0' y1='0' y2='1'%3E%3Cstop offset='0' stop-color='%2300ff00'/%3E%3Cstop offset='.25' stop-color='%23008000'/%3E%3Cstop offset='.75' stop-color='%23008000'/%3E%3Cstop offset='1' stop-color='%23000000'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23r)'/%3E%3Crect width='100' height='100' fill='url(%23g)' style='mix-blend-mode:screen'/%3E%3C/svg%3E"/>
+      <feDisplacementMap in="SourceGraphic" in2="map" scale="0.06" xChannelSelector="R" yChannelSelector="G" result="bent"/>
+      <!-- slight chromatic dispersion: red bends a bit more than blue -->
+      <feDisplacementMap in="SourceGraphic" in2="map" scale="0.075" xChannelSelector="R" yChannelSelector="G" result="bentR"/>
+      <feColorMatrix in="bentR" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red"/>
+      <feColorMatrix in="bent" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" result="gb"/>
+      <feBlend in="red" in2="gb" mode="screen"/>
+    </filter>
+  </defs>
+</svg>
+
+<div id="bg"></div>
+<main id="screen" tabindex="-1"></main>
+
+<div id="chrome">
+  <div id="toasts"></div>
+  <div id="mini" class="glass lensed hidden"></div>
+  <nav id="tabs" class="glass lensed">
+    <div id="pill"></div>
+  </nav>
+</div>
+
+<section id="player" class="hidden" aria-label="Now playing"></section>
+<div id="modal" class="hidden"></div>
+<div id="menu" class="hidden"></div>
+<audio id="audio" preload="auto"></audio>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

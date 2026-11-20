@@ -1,0 +1,5 @@
+# PyInstaller entry script (Tunio.exe).
+from tunio_desktop.app import main
+
+if __name__ == "__main__":
+    main()
