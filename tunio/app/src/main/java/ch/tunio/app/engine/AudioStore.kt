@@ -81,11 +81,25 @@ object AudioStore {
 
     private val streams = java.util.concurrent.ConcurrentHashMap<String, Pair<StreamInfo, Long>>()
 
+    /** Songs the player is streaming from the home server (if that fails mid-song, the phone takes over). */
+    val servedByHome: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     /**
      * A URL to stream [track] from right away, or null if it has to be downloaded first.
      * YouTube URLs expire after ~6 h, so they are reused for 3 h at most.
      */
     suspend fun stream(track: Track, quiet: Boolean = false): StreamInfo? {
+        if (HomeServer.usable()) {
+            if (!quiet) setProgress(track.id, -1f)
+            try {
+                val info = HomeServer.audio(target(track), track)
+                servedByHome.add(track.id)
+                return info
+            } finally {
+                progress.update { it - track.id }
+            }
+        }
+        servedByHome.remove(track.id)
         if (track.source == Source.TIKTOK || track.source == Source.OTHER) return null
         streams[track.id]?.let { (info, at) -> if (System.currentTimeMillis() - at < 3 * 3600_000L) return info }
         if (!quiet) setProgress(track.id, -1f)
@@ -105,9 +119,15 @@ object AudioStore {
     private val warmLimiter = Semaphore(2)
 
     fun prepareAhead(tracks: List<Track>, count: Int = 2) {
-        tracks.take(count).forEach { t ->
-            if (localFile(t) != null || streams.containsKey(t.id)) return@forEach
-            scope.launch { warmLimiter.withPermit { runCatching { stream(t, quiet = true) } } }
+        val todo = tracks.take(count).filter { localFile(it) == null && !streams.containsKey(it.id) }
+        if (todo.isEmpty()) return
+        scope.launch {
+            if (HomeServer.usable()) {
+                // The home server fetches (and keeps) them; the phone only matches Spotify songs if needed.
+                HomeServer.warm(todo.mapNotNull { t -> warmLimiter.withPermit { runCatching { target(t) }.getOrNull() } })
+            } else {
+                todo.forEach { t -> launch { warmLimiter.withPermit { runCatching { stream(t, quiet = true) } } } }
+            }
         }
     }
 
@@ -115,7 +135,7 @@ object AudioStore {
         setProgress(track.id, -1f)
         try {
             val target = target(track)
-            val file = Engine.downloadAudio(target, cacheDir, track.id) { p -> setProgress(track.id, (p / 100f).coerceIn(0f, 1f)) }
+            val file = Engine.downloadAudio(target, cacheDir, track.id, { p -> setProgress(track.id, (p / 100f).coerceIn(0f, 1f)) }, track)
             trimCache()
             return file
         } finally {

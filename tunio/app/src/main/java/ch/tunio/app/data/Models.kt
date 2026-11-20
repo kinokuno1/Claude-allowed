@@ -53,8 +53,11 @@ data class LibraryData(
 /** A search result or an imported link: a list of tracks, optionally with a collection name. */
 data class TrackList(val title: String?, val tracks: List<Track>, val cover: String? = null, val sourceUrl: String? = null)
 
-/** A direct audio URL the player can stream, plus the HTTP headers it needs. */
-data class StreamInfo(val url: String, val headers: Map<String, String>)
+/**
+ * A direct audio URL the player can stream, plus the HTTP headers it needs. [cacheKey]: key in the player's stream
+ * cache when it must differ from the song id (the home server may send another format than YouTube directly).
+ */
+data class StreamInfo(val url: String, val headers: Map<String, String>, val cacheKey: String? = null)
 
 fun formatDuration(sec: Int): String {
     if (sec <= 0) return ""

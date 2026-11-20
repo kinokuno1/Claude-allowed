@@ -27,6 +27,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import ch.tunio.app.engine.AudioStore
 import ch.tunio.app.engine.Engine
+import ch.tunio.app.engine.HomeServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -178,6 +179,13 @@ object PlayerController {
             override fun onPlayerError(error: PlaybackException) {
                 val fetch = generateSequence(error as Throwable?) { it.cause }.firstOrNull { it is FetchException }
                 val t = current
+                if (fetch == null && t != null && AudioStore.servedByHome.remove(t.id)) {
+                    // The home server stopped answering (e.g. left home Wi-Fi): play this song with the phone instead.
+                    HomeServer.markDown()
+                    exo.prepare()
+                    exo.play()
+                    return
+                }
                 if (fetch == null && t != null) {
                     // Probably a broken cached file (e.g. app killed mid-download): delete it so it is fetched again.
                     AudioStore.localFile(t)?.takeIf { it.parentFile == AudioStore.cacheDir }?.delete()
@@ -212,7 +220,7 @@ object PlayerController {
             if (stream != null) {
                 return spec.buildUpon()
                     .setUri(Uri.parse(stream.url))
-                    .setKey(track.id)
+                    .setKey(stream.cacheKey ?: track.id)
                     .setHttpRequestHeaders(stream.headers + spec.httpRequestHeaders)
                     .build()
             }

@@ -80,6 +80,7 @@ import ch.tunio.app.data.Track
 import ch.tunio.app.engine.AudioStore
 import ch.tunio.app.engine.Engine
 import ch.tunio.app.engine.EngineStatus
+import ch.tunio.app.engine.HomeServer
 import ch.tunio.app.player.PlayerController
 import ch.tunio.app.player.StreamCache
 import ch.tunio.app.player.shortError
@@ -581,6 +582,7 @@ fun SettingsScreen() {
                 )
             }
         }
+        SettingsCard("Home server (Raspberry Pi)") { HomeServerCard() }
         SettingsCard("Spotify account") { SpotifyAccountCard() }
         SettingsCard("Extra yt-dlp options") {
             Text("Advanced. Added to every yt-dlp call, e.g. --extractor-args \"youtube:player_client=default\"", color = Muted, fontSize = 13.sp)
@@ -613,6 +615,74 @@ fun SettingsScreen() {
 }
 
 private fun mb(b: Long) = "%.1f MB".format(b / 1024.0 / 1024.0)
+
+/** Settings card: connect to the Tunio server at home (tunio-desktop/server/README.md). */
+@Composable
+private fun HomeServerCard() {
+    val state by HomeServer.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var address by remember { mutableStateOf(HomeServer.address.removePrefix("http://").removeSuffix(":${HomeServer.DEFAULT_PORT}")) }
+    var password by remember { mutableStateOf(HomeServer.password) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var searching by remember { mutableStateOf(false) }
+    val (statusText, statusColor) = when (val s = state) {
+        is HomeServer.State.Online -> "Connected: ${s.songs} songs ready (%.1f GB)".format(s.bytes / 1024.0 / 1024.0 / 1024.0) to Good
+        HomeServer.State.Checking -> "Checking…" to Muted
+        HomeServer.State.Offline -> "Can't reach it right now: the phone gets songs itself" to ErrorText
+        HomeServer.State.WrongPassword -> "Wrong password" to ErrorText
+        HomeServer.State.NotSetUp -> "Not set up" to Muted
+    }
+    Text(statusText, color = statusColor, fontWeight = FontWeight.SemiBold)
+    Text(
+        "A Raspberry Pi at home that searches and keeps your songs, so they start instantly and your battery lasts longer. " +
+            "Set it up with one command (see \"Home server\" on the Tunio download page). " +
+            "Away from home it works through the free Tailscale app; without it, the phone does everything itself.",
+        color = Muted, fontSize = 13.sp, lineHeight = 19.sp,
+    )
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = address, onValueChange = { address = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+        label = { Text("Address") }, placeholder = { Text("192.168.1.20") },
+        colors = glassFieldColors(), shape = RoundedCornerShape(16.dp),
+    )
+    Spacer(Modifier.height(6.dp))
+    OutlinedTextField(
+        value = password, onValueChange = { password = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+        label = { Text("Password") }, placeholder = { Text("xxxx-xxxx-xxxx") },
+        colors = glassFieldColors(), shape = RoundedCornerShape(16.dp),
+    )
+    Spacer(Modifier.height(8.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        GlassButton(if (searching) "Searching…" else "Find on my Wi-Fi", enabled = !searching, onClick = {
+            searching = true
+            message = null
+            scope.launch {
+                val found = HomeServer.discover()
+                searching = false
+                if (found != null) {
+                    address = found.removePrefix("http://").removeSuffix(":${HomeServer.DEFAULT_PORT}")
+                    message = if (password.isBlank()) "Found it! Now type the password and tap Save." else "Found it! Tap Save."
+                } else {
+                    message = "No Tunio server found on this Wi-Fi. Check the Pi is on, or type its address."
+                }
+            }
+        })
+        AccentButton("Save", onClick = {
+            HomeServer.configure(address, password)
+            message = "Checking…"
+            scope.launch { message = HomeServer.test() }
+        })
+        if (HomeServer.configured) {
+            GlassButton("Disconnect", onClick = {
+                HomeServer.forget()
+                address = ""
+                password = ""
+                message = "Disconnected: the phone does everything itself"
+            })
+        }
+    }
+    message?.let { Text(it, color = Muted, fontSize = 13.sp) }
+}
 
 @Composable
 private fun SettingsCard(title: String, content: @Composable () -> Unit) {

@@ -189,6 +189,27 @@ def stream(target: str) -> dict | None:
     return core.stream_info(info)
 
 
+AUDIO_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
+
+
+def audio_format(target: str) -> dict:
+    """Everything yt-dlp knows about the audio Tunio keeps (m4a first): url, protocol, headers, ext, size, title..."""
+    with _ydl(format=AUDIO_FORMAT, noplaylist=True, playlist_items="1") as y:
+        info = y.extract_info(target, download=False)
+        if isinstance(info, dict) and isinstance(info.get("entries"), list):
+            info = next((e for e in info["entries"] if isinstance(e, dict)), None) or {}
+        return y.sanitize_info(info)
+
+
+def flat(url: str, items: str | None = None) -> dict:
+    """yt-dlp's quick listing (search results, playlists, mixes), exactly as the phone's worker returns it."""
+    opts = {"extract_flat": "in_playlist"}
+    if items:
+        opts["playlist_items"] = items
+    with _ydl(**opts) as y:
+        return y.sanitize_info(y.extract_info(url, download=False))
+
+
 def download(target: str, folder: str, key: str, on_progress=None) -> str:
     """Downloads the best audio as <folder>/<key>.<ext> and returns the file path."""
     os.makedirs(folder, exist_ok=True)
@@ -201,7 +222,7 @@ def download(target: str, folder: str, key: str, on_progress=None) -> str:
 
     opts = dict(
         # m4a first: plays everywhere (Windows Media Player, phones) and needs no conversion.
-        format="bestaudio[ext=m4a]/bestaudio/best",
+        format=AUDIO_FORMAT,
         outtmpl=os.path.join(folder, key + ".%(ext)s"),
         noplaylist=True,
         playlist_items="1",

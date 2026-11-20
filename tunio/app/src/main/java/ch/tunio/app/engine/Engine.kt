@@ -179,6 +179,7 @@ object Engine {
     private suspend fun searchUncached(source: Source, query: String, count: Int): List<Track> {
         val prefix = if (source == Source.SOUNDCLOUD) "scsearch$count:" else "ytsearch$count:"
         val fallback = if (source == Source.SOUNDCLOUD) Source.SOUNDCLOUD else Source.YOUTUBE
+        HomeServer.flat(prefix + query)?.let { return Parsing.parseResult(it, fallback).tracks }
         viaWorker { PyWorker.call("flat", mapOf("url" to prefix + query)) }?.let { return Parsing.parseResult(it, fallback).tracks }
         return legacySearch(source, query, count)
     }
@@ -198,7 +199,8 @@ object Engine {
     /** Turns any supported link (YouTube/SoundCloud/TikTok/Spotify, single or playlist) into tracks. */
     suspend fun resolveLink(url: String): TrackList {
         if (Spotify.isSpotify(url) || SpotifyJson.trackIds(url).isNotEmpty()) return Spotify.resolveAny(url)
-        val out = viaWorker { PyWorker.call("flat", mapOf("url" to url)) }
+        val out = HomeServer.flat(url)
+            ?: viaWorker { PyWorker.call("flat", mapOf("url" to url)) }
             ?: run(YoutubeDLRequest(url).addOption("--flat-playlist").addOption("-J")).out
         val result = Parsing.parseResult(out, Parsing.sourceOf(url))
         return if (result.sourceUrl == null) result.copy(sourceUrl = url) else result
@@ -213,7 +215,8 @@ object Engine {
             ?: Parsing.youtubeId(search(Source.YOUTUBE, track.searchQuery, count = 1).firstOrNull() ?: return emptyList())
             ?: return emptyList()
         val mixUrl = "https://www.youtube.com/watch?v=$id&list=RD$id"
-        val out = viaWorker { PyWorker.call("flat", mapOf("url" to mixUrl, "items" to "1:40")) }
+        val out = HomeServer.flat(mixUrl, "1:40")
+            ?: viaWorker { PyWorker.call("flat", mapOf("url" to mixUrl, "items" to "1:40")) }
             ?: run(YoutubeDLRequest(mixUrl).addOption("--flat-playlist").addOption("-J").addOption("--playlist-items", "1:40")).out
         val mix = Parsing.parseResult(out, Source.YOUTUBE).tracks
         return Parsing.pickSimilar(mix, exclude + track, max)
@@ -239,9 +242,13 @@ object Engine {
         return Parsing.streamInfo(run(req).out)
     }
 
-    /** Downloads the best audio of [target] into [dir] as `<key>.<ext>` and returns the file. */
-    suspend fun downloadAudio(target: String, dir: File, key: String, onProgress: (Float) -> Unit): File {
+    /**
+     * Downloads the best audio of [target] into [dir] as `<key>.<ext>` and returns the file. From the home server
+     * when it's reachable (fast, and it keeps a copy), otherwise with the phone's own yt-dlp.
+     */
+    suspend fun downloadAudio(target: String, dir: File, key: String, onProgress: (Float) -> Unit, track: Track? = null): File {
         dir.mkdirs()
+        HomeServer.download(target, track ?: Track(key, Source.OTHER, key), dir, key, onProgress)?.let { return it }
         val workerResult = try {
             viaWorker { PyWorker.call("download", mapOf("url" to target, "outtmpl" to File(dir, "$key.%(ext)s").absolutePath)) { onProgress(it * 100f) } }
         } catch (e: Throwable) {

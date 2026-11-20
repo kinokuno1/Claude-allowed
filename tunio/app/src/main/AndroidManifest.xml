@@ -16,7 +16,8 @@
         android:roundIcon="@drawable/ic_launcher"
         android:label="Tunio"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Tunio">
+        android:theme="@style/Theme.Tunio"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".ui.MainActivity"
@@ -40,6 +41,8 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="tunio" android:host="spotify-callback" />
                 <data android:scheme="tunio" android:host="open" />
+                <!-- "Connect Tunio" on the home server's page: tunio://pair?u=...&k=... -->
+                <data android:scheme="tunio" android:host="pair" />
             </intent-filter>
         </activity>
 

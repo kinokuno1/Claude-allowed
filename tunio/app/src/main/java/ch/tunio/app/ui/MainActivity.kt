@@ -79,6 +79,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import ch.tunio.app.data.Library
+import ch.tunio.app.engine.HomeServer
 import ch.tunio.app.engine.SpotifyAccount
 import ch.tunio.app.player.PlaybackService
 import ch.tunio.app.player.PlayerController
@@ -132,6 +133,17 @@ class MainActivity : ComponentActivity() {
 
     private fun handleShare(intent: Intent?) {
         val data = intent?.data
+        if (intent?.action == Intent.ACTION_VIEW && data?.scheme == "tunio" && data.host == "pair") {
+            // "Connect Tunio" button on the home server's page: tunio://pair?u=<address>&k=<password>
+            intent.data = null
+            val address = data.getQueryParameter("u")
+            val password = data.getQueryParameter("k")
+            if (!address.isNullOrBlank() && !password.isNullOrBlank()) {
+                HomeServer.configure(address, password)
+                lifecycleScope.launch { PlayerController.messages.emit(HomeServer.test()) }
+            }
+            return
+        }
         if (intent?.action == Intent.ACTION_VIEW && data?.scheme == "tunio" && data.host == "spotify-callback") {
             intent.data = null // don't handle twice on rotation
             lifecycleScope.launch {
