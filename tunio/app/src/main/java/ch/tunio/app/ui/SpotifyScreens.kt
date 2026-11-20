@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ch.tunio.app.engine.Spotify
 import ch.tunio.app.engine.SpotifyAccount
 import ch.tunio.app.player.PlayerController
 import ch.tunio.app.player.shortError
@@ -75,7 +76,10 @@ fun SpotifyAccountCard() {
             return@Column
         }
         Text(
-            "Needed only for private playlists and Liked Songs (public links work without it). One-time setup:",
+            "Needed only for private playlists and Liked Songs (public links work without it). " +
+                "Spotify requires Premium on the account that creates the developer app (its rule since Feb 2026). " +
+                "Without Premium: make the playlist public in Spotify and share its link to Tunio, or in the Spotify " +
+                "desktop app select all songs (Ctrl+A), copy (Ctrl+C) and paste them in Tunio's Search. One-time setup:",
             color = Muted, fontSize = 13.sp, lineHeight = 19.sp,
         )
         Text(
@@ -203,7 +207,7 @@ fun SpotifyImportScreen() {
             item { SectionTitle("Your playlists") }
             items(list, key = { it.id }) { p ->
                 ImportRow(p.name, "${p.count} songs", p.cover) {
-                    SearchModel.load("Spotify: ${p.name}") { SpotifyAccount.playlist(p.id) }
+                    SearchModel.load("Spotify: ${p.name}") { Spotify.resolveAny("https://open.spotify.com/playlist/${p.id}") }
                 }
             }
         }

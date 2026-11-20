@@ -60,11 +60,17 @@ object Spotify {
         var accountError: Throwable? = null
         if (SpotifyAccount.loggedIn) {
             try {
-                return when (type) {
+                val viaAccount = when (type) {
                     "playlist" -> SpotifyAccount.playlist(id)
                     "album" -> SpotifyAccount.album(id)
                     else -> SpotifyAccount.track(id)
                 }
+                // Spotify gives no songs for playlists you only follow: then try the public page below.
+                if (viaAccount.tracks.isNotEmpty()) return viaAccount
+                accountError = IllegalStateException(
+                    "Spotify only shares the songs of playlists you created or collaborate on. " +
+                        "Make this one public, or copy its songs from the Spotify desktop app and paste them in Search.",
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {

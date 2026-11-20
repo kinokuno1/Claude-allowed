@@ -266,7 +266,8 @@ object SpotifyAccount {
                 code == 429 -> kotlinx.coroutines.delay(retryAfter.coerceAtMost(30) * 1000)
                 code == 401 -> prefs.edit().remove("access").apply() // token revoked/expired: refresh and retry
                 code == 403 -> throw SpotifyHttpException(code, "Spotify refused (403): ${errorText(text)}. " +
-                    "In the Spotify developer dashboard, add your account under User Management.")
+                    "Spotify developer apps need the app owner to have Premium, and your account listed under " +
+                    "User Management in the dashboard.")
                 code == 404 -> throw SpotifyHttpException(code, "Spotify can't find this (404). Spotify doesn't let apps read its own generated playlists (e.g. Daily Mix, Discover Weekly).")
                 else -> throw SpotifyHttpException(code, "Spotify error $code: ${errorText(text)}")
             }
@@ -291,7 +292,12 @@ object SpotifyAccount {
     suspend fun playlist(id: String): TrackList {
         val p = obj("https://api.spotify.com/v1/playlists/$id")
         val cover = SpotifyJson.bestImage(p)
-        val paging = SpotifyJson.innerPaging(p) ?: obj("https://api.spotify.com/v1/playlists/$id/tracks?limit=100")
+        // Feb 2026 API: playlist songs moved from /tracks to /items. Spotify only returns the songs of playlists
+        // you own or collaborate on; for others this comes back empty and Spotify.resolveAny uses the public page.
+        val paging = SpotifyJson.innerPaging(p)
+            ?: runCatching { obj("https://api.spotify.com/v1/playlists/$id/items?limit=50") }.getOrNull()
+            ?: runCatching { obj("https://api.spotify.com/v1/playlists/$id/tracks?limit=50") }.getOrNull()
+            ?: return TrackList(p.str("name"), emptyList(), cover, "https://open.spotify.com/playlist/$id")
         return TrackList(p.str("name"), allPages(paging, cover), cover, "https://open.spotify.com/playlist/$id")
     }
 

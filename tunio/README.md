@@ -28,6 +28,9 @@ Songs start streaming as soon as yt-dlp has found the audio URL. They're saved w
 
 ## Spotify login (one-time, for private playlists)
 
+**Needs Spotify Premium.** Since February 2026 Spotify only lets developer apps work if the account that owns the app has Premium. That app is the one you create below. Spotify also only shares the songs of playlists you created or collaborate on. For playlists you just follow, Tunio uses the public page.
+**Without Premium**, there are two options. You can make the playlist public in Spotify and share its link to Tunio (you can make it private again afterwards; Tunio keeps its own copy once saved). Or, in the Spotify **desktop** app, open the playlist, press Ctrl+A then Ctrl+C, and paste into Tunio's Search.
+
 1. Go to <https://developer.spotify.com/dashboard>, log in with your Spotify account and **Create app**. Any name and description will do.
 2. **Redirect URI:** `http://127.0.0.1:43819/callback`. Type it exactly, with `127.0.0.1`, not `localhost`. Spotify no longer accepts custom addresses like `tunio://…` for new apps. Under *APIs used*, tick **Web API**, then save.
 3. Open the app's settings, copy the **Client ID** and paste it in Tunio → Settings → *Spotify account*.
