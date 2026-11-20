@@ -229,6 +229,8 @@ async function runSearch() {
     const r = s.fromLink ? await api("resolve", { text: q }) : await api("search", { source: s.source, q });
     if (my !== s.token) return;
     s.result = r; if (!r.tracks.length) s.error = "Nothing found.";
+    // Get the top result ready to play while you're still reading the list.
+    if (r.tracks[0]) api("prepare", { track: r.tracks[0], prefetch: true }).catch(() => {});
   } catch (e) { if (my === s.token) s.error = e.message; }
   if (my === s.token) { s.loading = false; renderSearchResults(); }
 }

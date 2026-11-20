@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -15,24 +16,56 @@ from .paths import CACHE_DIR, YTDLP_CACHE
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 
 
+TOOLS_DIR = os.path.join(CACHE_DIR, "..", "bin")
+
+
 def _bundled(name: str) -> str | None:
-    """Executables shipped inside Tunio.exe (PyInstaller) or next to it."""
+    """A helper program: inside Tunio.exe, next to it, downloaded by Tunio (Deno), or on PATH."""
     exe = name + (".exe" if os.name == "nt" else "")
-    for base in (getattr(sys, "_MEIPASS", None), os.path.dirname(sys.executable)):
+    for base in (getattr(sys, "_MEIPASS", None), os.path.dirname(sys.executable), TOOLS_DIR):
         if base and os.path.isfile(os.path.join(base, exe)):
-            return os.path.join(base, exe)
+            return os.path.normpath(os.path.join(base, exe))
     return shutil.which(name)
 
 
-def ffmpeg_path() -> str | None:
-    p = _bundled("ffmpeg")
-    if p:
-        return p
+DENO_URL = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+
+
+def ensure_deno():
+    """YouTube's JavaScript checks run fastest with Deno. It isn't packed into Tunio.exe (that would make every
+    launch unpack ~100 MB); it is downloaded once, in the background, on first launch. Until then yt-dlp uses
+    YouTube's no-JavaScript client, so songs still play."""
+    if os.name != "nt" or _bundled("deno"):
+        return
+    import io
+    import zipfile
     try:
-        import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        return None
+        os.makedirs(TOOLS_DIR, exist_ok=True)
+        req = urllib.request.Request(DENO_URL, headers={"User-Agent": "Tunio"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            data = r.read()
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            tmp = os.path.join(TOOLS_DIR, "deno.exe.tmp")
+            with z.open("deno.exe") as src, open(tmp, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        os.replace(tmp, os.path.join(TOOLS_DIR, "deno.exe"))
+    except Exception as e:  # noqa: BLE001 - optional speed-up
+        print("Deno download failed:", e, file=sys.stderr)
+
+
+def warm_up():
+    """Loads yt-dlp and its YouTube code while the window opens, so the first search doesn't wait."""
+    try:
+        with _ydl() as y:
+            y.get_info_extractor("Youtube")
+            y.get_info_extractor("YoutubeSearch")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def ffmpeg_path() -> str | None:
+    """Optional: Tunio plays and saves the original audio (m4a/webm), so it doesn't need ffmpeg."""
+    return _bundled("ffmpeg")
 
 
 class _Log:
@@ -84,7 +117,23 @@ def version() -> str:
 
 # ---------------------------------------------------------------- search & links
 
+_search_cache: dict[str, tuple[list[Track], float]] = {}
+
+
 def search(source: str, query: str, count: int = 25) -> list[Track]:
+    """Recent searches are remembered for 10 minutes, so going back to results is instant."""
+    key = f"{source}|{count}|{query.strip().lower()}"
+    hit = _search_cache.get(key)
+    if hit and time.time() - hit[1] < 600:
+        return hit[0]
+    result = _search(source, query, count)
+    if len(_search_cache) > 50:
+        _search_cache.clear()
+    _search_cache[key] = (result, time.time())
+    return result
+
+
+def _search(source: str, query: str, count: int) -> list[Track]:
     prefix = "scsearch" if source == "SOUNDCLOUD" else "ytsearch"
     with _ydl(extract_flat="in_playlist") as y:
         info = y.extract_info(f"{prefix}{count}:{query}", download=False)
@@ -151,7 +200,8 @@ def download(target: str, folder: str, key: str, on_progress=None) -> str:
                 on_progress(min(1.0, d.get("downloaded_bytes", 0) / total))
 
     opts = dict(
-        format="bestaudio/best",
+        # m4a first: plays everywhere (Windows Media Player, phones) and needs no conversion.
+        format="bestaudio[ext=m4a]/bestaudio/best",
         outtmpl=os.path.join(folder, key + ".%(ext)s"),
         noplaylist=True,
         playlist_items="1",

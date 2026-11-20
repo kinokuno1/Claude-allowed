@@ -24,6 +24,13 @@ Open the APK on your phone and allow "install unknown apps" if Android asks. The
 | **Library** | Liked songs, playlists (create/rename/delete), recently played. |
 | **Player** | Full-screen player, queue (play next / add to queue), shuffle, repeat, seek. Background playback with lock-screen and notification controls. |
 
+**Speed:**
+- yt-dlp runs as one long-lived background worker. Python and yt-dlp load once, while the app starts, instead of for every search or song.
+- The daily yt-dlp update happens in the background and never blocks you.
+- Playback starts after 0.5 s of audio.
+- Recent searches are remembered for 10 minutes.
+- The top search results, and the first song of a pasted link, are prepared while you read them.
+
 Songs start streaming as soon as yt-dlp has found the audio URL. They're saved while they play (up to 500 MB), so replays start instantly and need no network. The next song in the queue is prepared in the background while the current one plays. yt-dlp's cache is kept, so YouTube's player code is only downloaded and processed once (when YouTube updates it), not for every song.
 
 ## Spotify login (one-time, for private playlists)

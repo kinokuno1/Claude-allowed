@@ -16,6 +16,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
@@ -144,7 +145,12 @@ object PlayerController {
                 if (generateSequence(info.exception as Throwable?) { it.cause }.any { it is FetchException }) C.TIME_UNSET
                 else super.getRetryDelayMsFor(info)
         }
+        // Start playing after 0.5 s of audio instead of ExoPlayer's default 2.5 s.
+        val quickStart = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 60_000, 500, 1_500)
+            .build()
         exo = ExoPlayer.Builder(context)
+            .setLoadControl(quickStart)
             .setMediaSourceFactory(DefaultMediaSourceFactory(resolving).setLoadErrorHandlingPolicy(noRetryForFetch))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),

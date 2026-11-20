@@ -12,7 +12,7 @@ It needs Windows 10 or 11 with the Microsoft Edge WebView2 runtime, which is alr
 
 - **Search and links:** search YouTube or SoundCloud, or paste a YouTube, SoundCloud, TikTok or Spotify link (song, playlist or album).
 - **Spotify:** Spotify songs play from YouTube, matched by title, artist and length. For private playlists, open the Spotify app, select the songs (Ctrl+A), copy (Ctrl+C) and paste them into Search.
-- **Playback:** songs start streaming right away, and the next song is prepared in advance. When 3 or fewer songs are left, **autoplay** adds similar songs.
+- **Playback:** songs start streaming right away, and the next song is prepared in advance. While you read search results, the top one is prepared too. Recent searches are remembered for 10 minutes. When 3 or fewer songs are left, **autoplay** adds similar songs.
 - **Library:** Liked songs, playlists (create, rename, delete, *Save as playlist*) and recently played.
 - **Offline:** ⋮ → **Download**, or **Download N** on a playlist. Files go to your **Music\Tunio** folder and download in the background.
 - **Keyboard:** Space plays and pauses, Esc goes back, and the keyboard media keys work too.
@@ -29,7 +29,7 @@ It needs Windows 10 or 11 with the Microsoft Edge WebView2 runtime, which is alr
 
 ## How it's built
 
-- **Engine:** Python running [yt-dlp](https://github.com/yt-dlp/yt-dlp) in-process, with Deno for YouTube's JavaScript checks and ffmpeg.
+- **Engine:** Python running [yt-dlp](https://github.com/yt-dlp/yt-dlp) in-process, already loaded while the window opens. Deno handles YouTube's JavaScript checks. It's downloaded once to `%LOCALAPPDATA%\Tunio\bin` on first launch, so Tunio.exe stays small and starts fast; until then a no-JavaScript YouTube client is used. No ffmpeg: songs are played and saved in their original format (m4a preferred).
 - **Window:** [pywebview](https://pywebview.flowrl.com/) on Microsoft Edge WebView2. The UI is plain HTML, CSS and JS in `tunio_desktop/web`.
 - **Local server:** a small server on `127.0.0.1` connects the UI to the engine. It only accepts the window's own random token.
 - **Packaging:** [PyInstaller](https://pyinstaller.org/) bundles it all into one `Tunio.exe`. GitHub Actions builds it (`.github/workflows/build-tunio-windows.yml`) and publishes it next to the Android APK.

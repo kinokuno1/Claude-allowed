@@ -86,6 +86,8 @@ class Api:
         info = self.lib.stream(t)
         if info:
             return {"src": f"/stream/{t.id}", "kind": "stream"}
+        if prefetch:  # warming up only: don't download whole songs speculatively
+            return {"src": None, "kind": "none"}
         self.lib.ensure(t)
         return {"src": f"/audio/{t.id}", "kind": "file"}
 
@@ -224,6 +226,9 @@ def make_handler(api: Api, token: str):
 
 def start(lib: Library | None = None, port: int = 0) -> tuple[ThreadingHTTPServer, str]:
     """Starts the server in the background; returns it and the URL to open (with the token)."""
+    # Speed-ups that run while the window opens: load yt-dlp now, fetch Deno once if missing.
+    threading.Thread(target=engine.warm_up, daemon=True).start()
+    threading.Thread(target=engine.ensure_deno, daemon=True).start()
     token = secrets.token_urlsafe(24)
     api = Api(lib or Library())
     httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(api, token))

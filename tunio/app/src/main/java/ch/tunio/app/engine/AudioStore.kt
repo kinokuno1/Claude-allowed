@@ -85,16 +85,29 @@ object AudioStore {
      * A URL to stream [track] from right away, or null if it has to be downloaded first.
      * YouTube URLs expire after ~6 h, so they are reused for 3 h at most.
      */
-    suspend fun stream(track: Track): StreamInfo? {
+    suspend fun stream(track: Track, quiet: Boolean = false): StreamInfo? {
         if (track.source == Source.TIKTOK || track.source == Source.OTHER) return null
         streams[track.id]?.let { (info, at) -> if (System.currentTimeMillis() - at < 3 * 3600_000L) return info }
-        setProgress(track.id, -1f)
+        if (!quiet) setProgress(track.id, -1f)
         try {
             val info = Engine.streamInfo(target(track)) ?: return null
             streams[track.id] = info to System.currentTimeMillis()
             return info
         } finally {
             progress.update { it - track.id }
+        }
+    }
+
+    /**
+     * Speculative loading: while you look at results, quietly find the audio of the first few songs (and match
+     * Spotify songs on YouTube), so tapping one starts almost instantly. At most 2 at a time, cheap metadata only.
+     */
+    private val warmLimiter = Semaphore(2)
+
+    fun prepareAhead(tracks: List<Track>, count: Int = 2) {
+        tracks.take(count).forEach { t ->
+            if (localFile(t) != null || streams.containsKey(t.id)) return@forEach
+            scope.launch { warmLimiter.withPermit { runCatching { stream(t, quiet = true) } } }
         }
     }
 

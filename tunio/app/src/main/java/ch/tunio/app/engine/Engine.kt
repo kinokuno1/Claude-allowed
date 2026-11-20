@@ -63,13 +63,25 @@ object Engine {
                 FFmpeg.init(app)
                 version.value = YoutubeDL.versionName(app) ?: YoutubeDL.version(app)
                 val last = app.getSharedPreferences(PREFS, 0).getLong(KEY_LAST_UPDATE, 0)
-                // The yt-dlp shipped inside the APK ages fast; refresh it from GitHub once a day.
-                if (System.currentTimeMillis() - last > 24L * 3600 * 1000) {
+                if (last == 0L) {
+                    // Very first launch: the yt-dlp inside the APK may be too old for YouTube, so update first.
                     status.value = EngineStatus.Updating
                     withTimeoutOrNull(60_000) { runCatching { doUpdate() } }
                 }
                 status.value = EngineStatus.Ready
                 ready.complete(Unit)
+                // Load Python + yt-dlp once, now, so the first search/song doesn't wait for it.
+                PyWorker.warmUp()
+                // Daily refresh in the background (doesn't block searching or playing any more).
+                if (last != 0L && System.currentTimeMillis() - last > 24L * 3600 * 1000) {
+                    legacyUpdating = true
+                    try {
+                        while (active.get() > 0) delay(500)
+                        withTimeoutOrNull(90_000) { runCatching { doUpdate() } }
+                    } finally {
+                        legacyUpdating = false
+                    }
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "init failed", e)
                 status.value = EngineStatus.Failed(e.message ?: e.toString())
@@ -78,8 +90,12 @@ object Engine {
         }
     }
 
+    /** True while yt-dlp's file is being replaced: one-off yt-dlp processes wait (the worker uses its own copy). */
+    @Volatile private var legacyUpdating = false
+
     private fun doUpdate(): String {
         val result = YoutubeDL.updateYoutubeDL(app, YoutubeDL.UpdateChannel.STABLE)
+        if (result == YoutubeDL.UpdateStatus.DONE) PyWorker.restartWhenIdle = true
         app.getSharedPreferences(PREFS, 0).edit().putLong(KEY_LAST_UPDATE, System.currentTimeMillis()).apply()
         version.value = YoutubeDL.versionName(app) ?: YoutubeDL.version(app)
         return if (result == YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE) "yt-dlp is already up to date" else "yt-dlp updated to ${version.value}"
@@ -105,7 +121,7 @@ object Engine {
     private suspend fun run(request: YoutubeDLRequest, onProgress: ((Float) -> Unit)? = null): YoutubeDLResponse {
         ready.await()
         (status.value as? EngineStatus.Failed)?.let { throw IllegalStateException("Engine failed to start: ${it.message}") }
-        while (status.value == EngineStatus.Updating) delay(300)
+        while (status.value == EngineStatus.Updating || legacyUpdating) delay(300)
         // youtubedl-android disables yt-dlp's cache unless a dir is given. The cache holds YouTube's
         // pre-processed player code; without it every song re-downloads (~2 MB) and re-runs it in QuickJS.
         if (!request.hasOption("--cache-dir")) request.addOption("--cache-dir", File(app.filesDir, "ytdlp-cache").absolutePath)
@@ -130,7 +146,44 @@ object Engine {
         }
     }
 
+    /**
+     * Runs [block] in the long-lived yt-dlp worker when possible. Returns null (-> use a one-off yt-dlp process)
+     * if the worker isn't usable on this phone or custom yt-dlp options are set in Settings.
+     */
+    private suspend fun <T> viaWorker(block: suspend () -> T): T? {
+        if (!PyWorker.available || extraArgs.isNotBlank()) return null
+        ready.await()
+        if (status.value is EngineStatus.Failed) return null
+        return try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            if (!PyWorker.available) null else throw e
+        }
+    }
+
+    // Recent searches are remembered for 10 minutes: going back to results or switching tabs is instant.
+    private val searchCache = object : LinkedHashMap<String, Pair<List<Track>, Long>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<List<Track>, Long>>?) = size > 30
+    }
+
     suspend fun search(source: Source, query: String, count: Int = 25): List<Track> {
+        val key = "$source|$count|${query.trim().lowercase()}"
+        synchronized(searchCache) { searchCache[key] }?.let { (r, at) -> if (System.currentTimeMillis() - at < 600_000) return r }
+        val result = searchUncached(source, query, count)
+        synchronized(searchCache) { searchCache[key] = result to System.currentTimeMillis() }
+        return result
+    }
+
+    private suspend fun searchUncached(source: Source, query: String, count: Int): List<Track> {
+        val prefix = if (source == Source.SOUNDCLOUD) "scsearch$count:" else "ytsearch$count:"
+        val fallback = if (source == Source.SOUNDCLOUD) Source.SOUNDCLOUD else Source.YOUTUBE
+        viaWorker { PyWorker.call("flat", mapOf("url" to prefix + query)) }?.let { return Parsing.parseResult(it, fallback).tracks }
+        return legacySearch(source, query, count)
+    }
+
+    private suspend fun legacySearch(source: Source, query: String, count: Int = 25): List<Track> {
         val prefix = when (source) {
             Source.SOUNDCLOUD -> "scsearch$count:"
             else -> "ytsearch$count:"
@@ -145,10 +198,9 @@ object Engine {
     /** Turns any supported link (YouTube/SoundCloud/TikTok/Spotify, single or playlist) into tracks. */
     suspend fun resolveLink(url: String): TrackList {
         if (Spotify.isSpotify(url) || SpotifyJson.trackIds(url).isNotEmpty()) return Spotify.resolveAny(url)
-        val req = YoutubeDLRequest(url)
-            .addOption("--flat-playlist")
-            .addOption("-J")
-        val result = Parsing.parseResult(run(req).out, Parsing.sourceOf(url))
+        val out = viaWorker { PyWorker.call("flat", mapOf("url" to url)) }
+            ?: run(YoutubeDLRequest(url).addOption("--flat-playlist").addOption("-J")).out
+        val result = Parsing.parseResult(out, Parsing.sourceOf(url))
         return if (result.sourceUrl == null) result.copy(sourceUrl = url) else result
     }
 
@@ -160,11 +212,10 @@ object Engine {
         val id = Parsing.youtubeId(track)
             ?: Parsing.youtubeId(search(Source.YOUTUBE, track.searchQuery, count = 1).firstOrNull() ?: return emptyList())
             ?: return emptyList()
-        val req = YoutubeDLRequest("https://www.youtube.com/watch?v=$id&list=RD$id")
-            .addOption("--flat-playlist")
-            .addOption("-J")
-            .addOption("--playlist-items", "1:40")
-        val mix = Parsing.parseResult(run(req).out, Source.YOUTUBE).tracks
+        val mixUrl = "https://www.youtube.com/watch?v=$id&list=RD$id"
+        val out = viaWorker { PyWorker.call("flat", mapOf("url" to mixUrl, "items" to "1:40")) }
+            ?: run(YoutubeDLRequest(mixUrl).addOption("--flat-playlist").addOption("-J").addOption("--playlist-items", "1:40")).out
+        val mix = Parsing.parseResult(out, Source.YOUTUBE).tracks
         return Parsing.pickSimilar(mix, exclude + track, max)
     }
 
@@ -179,6 +230,7 @@ object Engine {
      * Returns null when the audio is not a plain HTTP file (e.g. HLS-only SoundCloud tracks).
      */
     suspend fun streamInfo(target: String): StreamInfo? {
+        viaWorker { PyWorker.call("stream", mapOf("url" to target)) }?.let { return Parsing.streamInfo(it) }
         val req = YoutubeDLRequest(target)
             .addOption("-f", "ba/b")
             .addOption("-j")
@@ -190,6 +242,15 @@ object Engine {
     /** Downloads the best audio of [target] into [dir] as `<key>.<ext>` and returns the file. */
     suspend fun downloadAudio(target: String, dir: File, key: String, onProgress: (Float) -> Unit): File {
         dir.mkdirs()
+        val workerResult = try {
+            viaWorker { PyWorker.call("download", mapOf("url" to target, "outtmpl" to File(dir, "$key.%(ext)s").absolutePath)) { onProgress(it * 100f) } }
+        } catch (e: Throwable) {
+            cleanup(dir, key)
+            throw e
+        }
+        if (workerResult != null) {
+            return findAudio(dir, key) ?: throw IllegalStateException("yt-dlp finished but no audio file was written")
+        }
         val req = YoutubeDLRequest(target)
             .addOption("-f", "bestaudio/best")
             .addOption("-x")

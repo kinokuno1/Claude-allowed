@@ -3,6 +3,7 @@ package ch.tunio.app.ui
 import ch.tunio.app.data.Source
 import ch.tunio.app.data.Track
 import ch.tunio.app.data.TrackList
+import ch.tunio.app.engine.AudioStore
 import ch.tunio.app.engine.Engine
 import ch.tunio.app.engine.Parsing
 import ch.tunio.app.engine.SpotifyJson
@@ -74,6 +75,8 @@ object SearchModel {
                 fromLink.value = link != null
                 result.value = if (link != null) Engine.resolveLink(link) else TrackList(null, Engine.search(source.value, q))
                 if (result.value?.tracks.isNullOrEmpty()) error.value = "Nothing found."
+                // Get the top results ready to play while you're still reading them.
+                result.value?.tracks?.let { AudioStore.prepareAhead(it, if (link != null) 1 else 2) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
