@@ -273,7 +273,7 @@ class Fetcher:
             else:  # HLS (some SoundCloud songs), cookies (TikTok)...: let yt-dlp download it, then serve it
                 path = self.download(job.url, self.store.dir, job.key + ".dl")
                 final = os.path.join(self.store.dir, job.key + "." + path.rsplit(".", 1)[-1])
-                os.replace(path, final)
+                _replace(path, final)
                 path = final
                 job.ext = path.rsplit(".", 1)[-1]
             self.store.add(job.key, path, meta)
@@ -339,8 +339,37 @@ class Fetcher:
                     raise RuntimeError("download stalled")
         if total is not None and pos < total:
             raise RuntimeError("download incomplete")
-        os.replace(part, final)
+        _replace(part, final)
         return final
+
+
+def _replace(src: str, dst: str):
+    """os.replace that waits a moment on Windows, where a file can't be renamed while someone is reading it."""
+    for _ in range(50):
+        try:
+            return os.replace(src, dst)
+        except PermissionError:
+            if os.name != "nt":
+                raise
+            time.sleep(0.1)
+    os.replace(src, dst)
+
+
+def _read_job(job: "Job", pos: int, n: int) -> bytes:
+    """Reads part of a song that may be renamed from .part to its final name at any moment.
+    The file is only open for this one read, so the rename is never blocked for long."""
+    for _ in range(40):
+        for path in (job.part, job.final, job.part and job.part[:-5]):
+            if not path:
+                continue
+            try:
+                with open(path, "rb") as f:
+                    f.seek(pos)
+                    return f.read(n)
+            except OSError:
+                continue
+        time.sleep(0.05)
+    return b""
 
 
 # ---------------------------------------------------------------- nightly jobs
@@ -640,28 +669,22 @@ def make_handler(srv: Server):
             if not span or self.command == "HEAD":
                 return
             start, end = span
-            try:
-                f = open(job.part, "rb")
-            except (OSError, TypeError):
-                f = open(job.final or "", "rb")
-            with f:
-                pos = start
-                while pos <= end:
-                    with job.cond:
-                        deadline = time.time() + 60
-                        while job.done <= pos and not job.finished and job.error is None and time.time() < deadline:
-                            job.cond.wait(5)
-                        avail = job.done
-                        if avail <= pos:  # failed or stalled: drop the connection, the phone retries/falls back
-                            self.close_connection = True
-                            return
-                    f.seek(pos)
-                    data = f.read(min(256 * 1024, end + 1 - pos, avail - pos))
-                    if not data:
+            pos = start
+            while pos <= end:
+                with job.cond:
+                    deadline = time.time() + 60
+                    while job.done <= pos and not job.finished and job.error is None and time.time() < deadline:
+                        job.cond.wait(5)
+                    avail = job.done
+                    if avail <= pos:  # failed or stalled: drop the connection, the phone retries/falls back
                         self.close_connection = True
                         return
-                    self.wfile.write(data)
-                    pos += len(data)
+                data = _read_job(job, pos, min(256 * 1024, end + 1 - pos, avail - pos))
+                if not data:
+                    self.close_connection = True
+                    return
+                self.wfile.write(data)
+                pos += len(data)
 
     return Handler
 
