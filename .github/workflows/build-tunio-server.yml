@@ -66,6 +66,7 @@ jobs:
           body: |
             Latest Tunio build from commit ${{ github.sha }}.
             **Android:** download **Tunio-arm64.apk** (almost every phone since 2017). If it won't install, use Tunio-universal.apk.
+            **iPhone / iPad:** download **Tunio.ipa** and install it with iloader (guide: tunio-ios/README.md).
             **Windows 10/11:** download **Tunio.exe** and double-click it. Windows may say "Windows protected your PC" because the app isn't signed: click *More info*, then *Run anyway*.
             **Home server (Raspberry Pi):** on the Pi, run `curl -fsSL https://github.com/kinokuno1/Claude-allowed/releases/download/tunio-latest/install-tunio-server.sh | sudo bash` (setup guide: tunio-desktop/server/README.md).
           files: |

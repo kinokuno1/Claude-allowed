@@ -1,0 +1,72 @@
+name: Build Tunio for iOS
+
+on:
+  push:
+    paths:
+      - 'tunio-ios/**'
+      - '.github/workflows/build-tunio-ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: tunio-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          X=$(python3 -c "import glob,re; a=[p for p in glob.glob('/Applications/Xcode_*.app') if 'beta' not in p.lower()]; print(max(a, key=lambda p: [int(x) for x in re.findall(r'\d+', p)]))")
+          sudo xcode-select -s "$X"
+          xcodebuild -version
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build (unsigned, for iPhone)
+        run: |
+          set -o pipefail
+          xcodebuild -project Tunio.xcodeproj -scheme Tunio -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 || { grep -E "error:|warning: unable" build.log | sort -u | head -80; tail -40 build.log; exit 1; }
+          grep -c "warning:" build.log || true
+
+      - name: Pack Tunio.ipa (for iloader / SideStore / AltStore)
+        run: |
+          APP=build/Build/Products/Release-iphoneos/Tunio.app
+          test -d "$APP"
+          rm -rf ipa && mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry ../Tunio.ipa Payload)
+          ls -la Tunio.ipa
+          lipo -info "$APP/Tunio"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tunio-iOS
+          path: tunio-ios/Tunio.ipa
+
+      - name: Publish to the tunio-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tunio-latest
+          name: Tunio (latest build)
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Latest Tunio build from commit ${{ github.sha }}.
+            **Android:** download **Tunio-arm64.apk** (almost every phone since 2017). If it won't install, use Tunio-universal.apk.
+            **iPhone / iPad:** download **Tunio.ipa** and install it with iloader (guide: tunio-ios/README.md).
+            **Windows 10/11:** download **Tunio.exe** and double-click it. Windows may say "Windows protected your PC" because the app isn't signed: click *More info*, then *Run anyway*.
+            **Home server (Raspberry Pi):** on the Pi, run `curl -fsSL https://github.com/kinokuno1/Claude-allowed/releases/download/tunio-latest/install-tunio-server.sh | sudo bash` (setup guide: tunio-desktop/server/README.md).
+          files: tunio-ios/Tunio.ipa
