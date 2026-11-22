@@ -224,7 +224,7 @@ function back() { if (S.hi > 0) { S.hi--; render(true); } }
 function forward() { if (S.hi < S.hist.length - 1) { S.hi++; render(true); } }
 document.addEventListener("keydown", (e) => {
   const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
-  if (e.key === "Escape") { if (!$("#modal").classList.contains("hidden")) $("#modal").classList.add("hidden"); else if (!$("#menu").classList.contains("hidden")) closeMenu(); else if (typing) document.activeElement.blur(); return; }
+  if (e.key === "Escape") { if (!$("#modal").classList.contains("hidden")) $("#modal").classList.add("hidden"); else if (!$("#menu").classList.contains("hidden")) closeMenu(); else if (typing) document.activeElement.blur(); else if ($("#app").classList.contains("focus")) { $("#app").classList.remove("focus"); render(true); } return; }
   if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); return back(); }
   if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); return forward(); }
   if (e.ctrlKey && (e.key === "k" || e.key === "l")) { e.preventDefault(); $("#q").focus(); $("#q").select(); return; }
@@ -309,14 +309,19 @@ function refresh() { render(false); }
 function render(navigated) {
   const sc = $("#screen"), r = route(), top = sc.scrollTop;
   closeMenu();
-  if (r === "search" && !navigated && $("#results")) renderSearchResults();
+  sc.classList.toggle("ly-mode", r === "lyrics");
+  if (r !== "lyrics") $("#app").classList.remove("focus");
+  if (r === "lyrics") {
+    const html = lyricsHtml(), key = /data-key="([^"]*)"/.exec(html)?.[1];
+    if (navigated || !key || $(".ly-wrap", sc)?.dataset.key !== key.replace(/&amp;/g, "&")) { sc.innerHTML = html; bindLyrics(); }
+  } else if (r === "search" && !navigated && $("#results")) renderSearchResults();
   else {
     if (r.startsWith("pl:") && !playlist(r.slice(3)) && S.loaded) { S.hist.splice(S.hi, 1); S.hi = Math.max(0, S.hi - 1); return render(true); }
     sc.innerHTML = `<div class="page">${r === "home" ? homeHtml() : r === "search" ? searchHtml() : r === "settings" ? settingsHtml() : collectionHtml(r)}</div>`;
     bindScreen(r);
     if (r === "search") renderSearchResults();
   }
-  sc.scrollTop = navigated ? 0 : top;
+  if (r !== "lyrics") sc.scrollTop = navigated ? 0 : top;
   updateTop(); renderSide(); updateBar(); renderNp();
 }
 
@@ -494,36 +499,13 @@ function slider(el, { onInput, onCommit, step = 0.05 }) {
   return api_;
 }
 
-// ------------------------------------------------------------------ audio graph: volume + visualizer
+// ------------------------------------------------------------------ volume
 const audio = $("#audio");
-/** Web Audio: element → analyser (visualizer, independent of volume) → gain (volume) → speakers.
- *  Created on the first play (a click), so the browser lets it run. If it can't be created, the plain
- *  <audio> volume is used and the visualizer stays off — songs always play. */
-const Graph = (() => {
-  let ctx = null, analyser = null, gain = null, failed = false;
-  function ensure() {
-    if (ctx) { if (ctx.state !== "running") ctx.resume().catch(() => {}); return; }
-    if (failed) return;
-    try {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const src = ctx.createMediaElementSource(audio);
-      analyser = ctx.createAnalyser(); analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.78;
-      gain = ctx.createGain();
-      src.connect(analyser); analyser.connect(gain); gain.connect(ctx.destination);
-      audio.volume = 1; Volume.apply();
-      if (ctx.state !== "running") ctx.resume().catch(() => {});
-    } catch (e) { failed = true; ctx = null; console.warn("visualizer off:", e); }
-  }
-  audio.addEventListener("play", () => { if (ctx && ctx.state !== "running") ctx.resume().catch(() => {}); Viz.wake(); });
-  return { ensure, get analyser() { return analyser; }, get gain() { return gain; }, get ctx() { return ctx; } };
-})();
-
 const Volume = (() => {
   let value = 0.8, muted = false, saveT = 0, ui = null;
   const curve = (v) => v * v; // feels even across the slider
   function apply() {
-    const g = muted ? 0 : curve(value);
-    if (Graph.gain) { Graph.gain.gain.setTargetAtTime(g, Graph.ctx.currentTime, 0.015); audio.volume = 1; } else audio.volume = g;
+    audio.volume = muted ? 0 : curve(value);
     ui?.set(muted ? 0 : value);
     const b = $("#vbtn"); if (b) { b.innerHTML = icon(muted || value === 0 ? "volume_off" : value < 0.5 ? "volume_down" : "volume_up"); b.title = muted ? "Unmute" : "Mute"; }
   }
@@ -535,38 +517,57 @@ const Volume = (() => {
     attach(s) { ui = s; apply(); }, get value() { return value; } };
 })();
 
-/** Live spectrum in the now-playing panel: log-spaced bars in the accent gradient, with falling peak caps. */
-const Viz = (() => {
-  let raf = 0, data = null, levels = [], peaks = [];
-  const BARS = 40;
-  function wake() { if (!raf) raf = requestAnimationFrame(draw); }
-  function draw() {
-    raf = 0;
-    const cv = $("#viz"); if (!cv || !cv.offsetParent) return; // panel hidden: sleep until the next play/open
-    const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
-    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-    const an = Graph.analyser, live = an && !audio.paused;
-    if (an) { if (!data) data = new Uint8Array(an.frequencyBinCount); an.getByteFrequencyData(data); }
-    const sr = Graph.ctx?.sampleRate || 48000, binHz = sr / 2048;
-    let moving = false;
-    const gap = 3, bw = (w - gap * (BARS - 1)) / BARS;
-    const grad = g.createLinearGradient(0, h, 0, 0); grad.addColorStop(0, "#7C4DEE"); grad.addColorStop(1, "#D4337F");
-    for (let i = 0; i < BARS; i++) {
-      // 40 Hz … 14 kHz, spaced like hearing (logarithmic)
-      const f0 = 40 * Math.pow(14000 / 40, i / BARS), f1 = 40 * Math.pow(14000 / 40, (i + 1) / BARS);
-      let target = 0;
-      if (live) { const a = Math.max(1, Math.floor(f0 / binHz)), b = Math.max(a + 1, Math.ceil(f1 / binHz)); let m = 0; for (let k = a; k < b && k < data.length; k++) m = Math.max(m, data[k]); target = Math.pow(m / 255, 1.6); }
-      const lv = levels[i] = (levels[i] || 0) + (target - (levels[i] || 0)) * (target > (levels[i] || 0) ? 0.6 : 0.18);
-      peaks[i] = Math.max(lv, (peaks[i] || 0) - 0.012);
-      if (lv > 0.003 || peaks[i] > 0.003) moving = true;
-      const bh = Math.max(live ? 2 : 0, lv * (h - 26)), x = i * (bw + gap);
-      if (bh >= 1) { g.fillStyle = grad; g.beginPath(); g.roundRect(x, h - bh, bw, bh, [2, 2, 0, 0]); g.fill(); }
-      if (peaks[i] > 0.04) { g.fillStyle = "rgba(247,247,250,.85)"; g.fillRect(x, h - Math.max(2, peaks[i] * (h - 26)) - 4, bw, 2); }
+// ------------------------------------------------------------------ lyrics (LRCLIB, via the local engine)
+/** Lyrics for the playing song: a card in the Now playing panel and a full view in the main area.
+ *  Synced lyrics light up line by line with the song; click a line to jump there. */
+const Lyrics = (() => {
+  const cache = new Map(); // track id -> { status: "loading" | "ok" | "error", data }
+  let raf = 0, shownIdx = -2, userScrollAt = 0;
+  function get(t) {
+    if (!t) return null;
+    let e = cache.get(t.id);
+    if (!e || (e.status === "error" && Date.now() - e.at > 30000)) {
+      e = { status: "loading" }; cache.set(t.id, e);
+      api("lyrics", { track: t }).then((d) => { e.status = "ok"; e.data = d; }).catch((err) => { e.status = "error"; e.error = err.message; e.at = Date.now(); })
+        .finally(() => { if (Player.current()?.id === t.id) { renderNp(true); if (route() === "lyrics") render(false, true); } });
     }
-    if (live || moving) raf = requestAnimationFrame(draw);
+    return e;
   }
-  return { wake };
+  const prefetch = (t) => { if (t) get(t); };
+  /** Index of the line being sung (last line whose time has come), -1 before the first one. */
+  function indexAt(lines, time) {
+    let lo = 0, hi = lines.length - 1, ans = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (lines[m][0] <= time + 0.25) { ans = m; lo = m + 1; } else hi = m - 1; }
+    return ans;
+  }
+  const synced = () => { const e = cache.get(Player.current()?.id); return e?.status === "ok" ? e.data.synced : null; };
+  function tick() {
+    raf = 0;
+    const lines = synced(); if (!lines) return;
+    const idx = indexAt(lines, audio.currentTime || 0);
+    if (idx !== shownIdx) { shownIdx = idx; paint(idx, lines); }
+    if (!audio.paused) raf = requestAnimationFrame(tick);
+  }
+  function wake(force = false) { if (force) shownIdx = -2; if (!raf) raf = requestAnimationFrame(tick); }
+  function paint(idx, lines) {
+    // full view
+    const box = $("#lylines");
+    if (box) {
+      box.querySelectorAll(".ly-line").forEach((el, i) => { el.classList.toggle("on", i === idx); el.classList.toggle("past", i < idx); });
+      const el = box.children[Math.max(0, idx)], sc = $("#lyscroll");
+      if (el && sc && Date.now() - userScrollAt > 3000) sc.scrollTo({ top: el.offsetTop - sc.clientHeight * 0.36, behavior: "smooth" });
+    }
+    // card in the Now playing panel: the line being sung and the next ones
+    const card = $("#lycardlines");
+    if (card) {
+      const from = Math.max(0, idx), slice = lines.slice(from, from + 5);
+      card.innerHTML = slice.map(([, txt], k) => `<p class="${k === 0 && idx >= 0 ? "on" : ""}">${esc(txt) || "♪"}</p>`).join("");
+    }
+  }
+  audio.addEventListener("play", () => wake(true));
+  audio.addEventListener("seeked", () => wake(true));
+  document.addEventListener("wheel", (e) => { if (e.target.closest?.("#lyscroll")) userScrollAt = Date.now(); }, { passive: true });
+  return { get, prefetch, wake, indexAt, paint: () => { shownIdx = -2; wake(true); } };
 })();
 
 // ------------------------------------------------------------------ player
@@ -575,7 +576,7 @@ const Player = (() => {
   const current = () => queue[index] || null;
   async function load(i, autoplayCheck = true) {
     index = i; const t = current(); if (!t) return;
-    Graph.ensure();
+    Lyrics.prefetch(t);
     const my = ++loadToken; preparing = true; audio.pause(); updateUi();
     try {
       const { src } = await api("prepare", { track: t });
@@ -602,7 +603,7 @@ const Player = (() => {
       } catch { /* no autoplay this time */ } finally { autoplayBusy = false; }
     }
     const next = queue[index + 1]; // warm up the next song so it starts instantly
-    if (next) api("prepare", { track: next, prefetch: true }).catch(() => {});
+    if (next) { api("prepare", { track: next, prefetch: true }).catch(() => {}); Lyrics.prefetch(next); }
   }
   function play(tracks, start = 0, shuffled = shuffle, ctx = null) {
     if (!tracks.length) return; shuffle = shuffled; context = ctx;
@@ -617,7 +618,7 @@ const Player = (() => {
     else if (!auto) load(index); // restart last
   }
   function prev() { if (audio.currentTime > 3 || index <= 0) audio.currentTime = 0; else load(index - 1); }
-  function toggle() { if (!current() || preparing) return; Graph.ensure(); if (!audio.src) return load(index); audio.paused ? audio.play() : audio.pause(); }
+  function toggle() { if (!current() || preparing) return; if (!audio.src) return load(index); audio.paused ? audio.play() : audio.pause(); }
   function toggleShuffle() {
     shuffle = !shuffle; const cur = current(); if (!cur) return updateUi();
     if (shuffle) { original = queue.slice(); queue = [...queue.slice(0, index + 1), ...queue.slice(index + 1).sort(() => Math.random() - .5)]; }
@@ -671,13 +672,15 @@ function setupBar() {
     </div>
     <div class="side">
       <button class="icon-btn" id="bdl" title="Download">${icon("download")}</button>
+      <button class="icon-btn" id="bly" title="Lyrics">${icon("mic")}</button>
       <button class="icon-btn" id="bnp" title="Now playing view">${icon("view_sidebar")}</button>
       <button class="icon-btn" id="vbtn" title="Mute">${icon("volume_up")}</button>
       <div class="slider vol" id="vol" aria-label="Volume"></div>
     </div>`;
   $("#bplay").onclick = Player.toggle; $("#bnext").onclick = () => Player.next(); $("#bprev").onclick = Player.prev;
   $("#bshuf").onclick = Player.toggleShuffle; $("#brep").onclick = Player.cycleRepeat;
-  $("#bnp").onclick = toggleNp; $("#vbtn").onclick = () => Volume.toggleMute();
+  $("#bnp").onclick = toggleNp;
+  $("#bly").onclick = () => (route() === "lyrics" ? back() : go("lyrics")); $("#vbtn").onclick = () => Volume.toggleMute();
   $("#bdl").onclick = async () => { const t = Player.current(); if (!t) return;
     if (S.offline.has(t.id)) { await api("download/remove", { track: t }); toast("Download removed"); } else { await api("download", { tracks: [t] }); toast(`Downloading “${t.title}”`); } poll(); };
   progress = slider($("#seek"), {
@@ -710,6 +713,7 @@ function updateBar() {
   $("#bdl").innerHTML = p !== undefined && !off ? `<span class="ring ${p < 0 ? "busy" : ""}" style="--p:${Math.max(0, p)}"></span>` : icon(off ? "download_done" : "download");
   $("#bdl").title = off ? "Downloaded (click to remove)" : "Download";
   $("#bnp").classList.toggle("on", npVisible());
+  $("#bly").classList.toggle("on", route() === "lyrics"); $("#bly").disabled = !t;
   $("#seek").classList.toggle("busy", !!Player.preparing);
   tickProgress();
 }
@@ -724,17 +728,28 @@ audio.addEventListener("durationchange", tickProgress);
 function setupNp() {
   $("#np").innerHTML = `<div class="panel-head"><h2 id="npctx" class="ellip">Now playing</h2><span class="spacer"></span>
       <button class="round small" id="npclose" title="Hide Now playing view">${icon("close")}</button></div>
-    <div class="np-body"><div id="npmain"></div>
-      <div class="viz-wrap" id="vizwrap"><span class="viz-label">LIVE AUDIO</span><canvas id="viz"></canvas></div>
-      <div id="npqueue"></div></div>`;
+    <div class="np-body"><div id="npmain"></div><div id="lyslot"></div><div id="npqueue"></div></div>`;
   $("#npclose").onclick = toggleNp;
+  $("#lyslot").addEventListener("click", () => { if (Player.current()) route() === "lyrics" ? back() : go("lyrics"); });
+  $("#lyslot").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#lyslot").click(); });
 }
-function renderNp() {
+function lyricsCardHtml(t) {
+  const e = Lyrics.get(t);
+  let body;
+  if (e.status === "loading") body = `<p class="dim">Looking for lyrics…</p>`;
+  else if (e.status === "error") body = `<p class="dim">Couldn't reach the lyrics service. Check your internet connection.</p>`;
+  else if (e.data.instrumental) body = `<p class="on">♪ Instrumental</p>`;
+  else if (e.data.synced) body = `<div id="lycardlines"></div>`;
+  else if (e.data.plain) body = `<div class="plain">${e.data.plain.split("\n").filter(Boolean).slice(0, 5).map((l) => `<p>${esc(l)}</p>`).join("")}</div>`;
+  else body = `<p class="dim">No lyrics found for this song.</p>`;
+  return `<div class="ly-card ${route() === "lyrics" ? "open" : ""}" role="button" tabindex="0" title="${route() === "lyrics" ? "Close lyrics" : "Show lyrics in the big view"}">
+    <h3>Lyrics<span class="spacer"></span>${icon(route() === "lyrics" ? "close" : "open_in_full")}</h3>${body}</div>`;
+}
+function renderNp(force = false) {
   if (!npVisible()) return;
-  const t = Player.current(), main = $("#npmain"), q = $("#npqueue");
-  $("#vizwrap").classList.toggle("hidden", !t);
+  const t = Player.current(), main = $("#npmain"), q = $("#npqueue"), ly = $("#lyslot");
   $("#npctx").textContent = t ? collName(Player.context) : "Now playing";
-  if (!t) { main.innerHTML = `<div class="empty">${icon("graphic_eq")}<p>Nothing playing yet.<br>Pick a song and it shows up here, with its live audio and what plays next.</p></div>`; q.innerHTML = ""; main.dataset.key = ""; return; }
+  if (!t) { main.innerHTML = `<div class="empty">${icon("music_note")}<p>Nothing playing yet.<br>Pick a song and it shows up here, with its lyrics and what plays next.</p></div>`; q.innerHTML = ly.innerHTML = ""; main.dataset.key = ly.dataset.key = ""; return; }
   const liked = S.lib.liked.includes(t.id), p = S.progress[t.id];
   const upNext = Player.queue.slice(Player.index + 1, Player.index + 31); LISTS.queue = upNext;
   const key = JSON.stringify([t.id, liked, Player.preparing, p, upNext.map((x) => x.id), S.offline.has(t.id)]);
@@ -755,11 +770,44 @@ function renderNp() {
       const rm = e.target.closest("[data-rmq]"); if (rm) return Player.remove(Player.index + 1 + +rm.dataset.rmq);
       Player.jump(Player.index + 1 + +r.dataset.q); });
   }
-  Viz.wake();
+  const lkey = JSON.stringify([t.id, Lyrics.get(t).status, route() === "lyrics"]);
+  if (force || ly.dataset.key !== lkey) { ly.dataset.key = lkey; ly.innerHTML = lyricsCardHtml(t); Lyrics.paint(); }
+}
+
+// ------------------------------------------------------------------ lyrics view (main area)
+function lyricsHtml() {
+  const t = Player.current();
+  if (!t) return `<div class="page"><h1 class="title">Lyrics</h1><div class="panel muted">Play a song and its lyrics show up here.</div></div>`;
+  const e = Lyrics.get(t), d = e.data || {}, cover = t.thumbnail;
+  let lines = "", note = "";
+  if (e.status === "loading") lines = `<p class="ly-msg"><span class="spinner"></span> Looking for lyrics…</p>`;
+  else if (e.status === "error") lines = `<p class="ly-msg">Couldn't reach the lyrics service.<br><span class="small">Check your internet connection and try again.</span></p>`;
+  else if (d.instrumental) lines = `<p class="ly-msg">♪ This song is instrumental ♪</p>`;
+  else if (d.synced) lines = d.synced.map(([time, txt]) => `<p class="ly-line" data-t="${time}">${esc(txt) || "♪"}</p>`).join("");
+  else if (d.plain) { lines = d.plain.split("\n").map((l) => `<p class="ly-line plain">${esc(l) || "&nbsp;"}</p>`).join(""); note = "These lyrics aren't synced to the song."; }
+  else lines = `<p class="ly-msg">No lyrics found for this song.<br><span class="small">LRCLIB is made by its community, so new or rare songs may be missing.</span></p>`;
+  const focus = $("#app").classList.contains("focus");
+  return `<div class="ly-wrap" data-key="${esc(t.id)}|${e.status}">
+    <div class="ly-bg">${cover ? `<img class="b1" src="${esc(cover)}" alt="" referrerpolicy="no-referrer"><img class="b2" src="${esc(cover)}" alt="" referrerpolicy="no-referrer">` : ""}</div>
+    <div class="ly-scroll" id="lyscroll"><div class="ly-lines ${d.synced ? "synced" : ""}" id="lylines">${lines}</div>
+      <p class="ly-credit">${note ? `${note} · ` : ""}${e.status === "ok" && d.found ? `Lyrics from LRCLIB${d.track ? ` (“${esc(d.track)}” by ${esc(d.artist)})` : ""}` : ""}</p></div>
+    <div class="ly-top">${art(cover)}<div class="ellip"><div class="t ellip">${esc(t.title)}</div><div class="a ellip">${esc(t.artist || "")}</div></div><span class="spacer"></span>
+      <button class="round" id="lyfocus" title="${focus ? "Show the side panels again" : "Fill the window with lyrics"}">${icon(focus ? "fullscreen_exit" : "fullscreen")}</button>
+      <button class="round" id="lyclose" title="Close lyrics">${icon("close")}</button></div>
+  </div>`;
+}
+function bindLyrics() {
+  $("#lyclose")?.addEventListener("click", back);
+  $("#lyfocus")?.addEventListener("click", () => { $("#app").classList.toggle("focus"); render(true); });
+  $("#lylines")?.addEventListener("click", (e) => {
+    const line = e.target.closest(".ly-line[data-t]"); if (!line) return;
+    audio.currentTime = Math.max(0, +line.dataset.t); if (audio.paused) audio.play(); Lyrics.paint();
+  });
+  Lyrics.paint();
 }
 
 // ------------------------------------------------------------------ start
 setupTop(); setupBar(); setupNp(); applyLayout();
-window.addEventListener("resize", () => { renderNp(); $("#bnp").classList.toggle("on", npVisible()); Viz.wake(); });
+window.addEventListener("resize", () => { renderNp(); $("#bnp").classList.toggle("on", npVisible()); });
 render(true);
 poll();

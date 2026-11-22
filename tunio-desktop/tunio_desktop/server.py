@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from . import engine
 from .core import Track
 from .library import Library
+from .lyrics import Lyrics
 
 # In Tunio.exe the UI files are unpacked next to this module (PyInstaller --add-data ...;tunio_desktop/web).
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -28,8 +29,12 @@ def _tracks(body, key="tracks") -> list[Track]:
 
 
 class Api:
-    def __init__(self, lib: Library):
+    def __init__(self, lib: Library, lyrics: Lyrics | None = None):
         self.lib = lib
+        if lyrics is None:
+            from .paths import CACHE_DIR
+            lyrics = Lyrics(os.path.join(CACHE_DIR, "lyrics"))
+        self.lyrics = lyrics
 
     def handle(self, path: str, body: dict):
         lib = self.lib
@@ -41,6 +46,8 @@ class Api:
             return engine.resolve(body["text"]).to_dict()
         if path == "prepare":
             return self.prepare(Track.from_dict(body["track"]), prefetch=bool(body.get("prefetch")))
+        if path == "lyrics":
+            return self.lyrics.get(Track.from_dict(body["track"]))
         if path == "similar":
             sim = engine.similar(Track.from_dict(body["track"]), _tracks(body, "exclude"), int(body.get("max", 10)))
             return {"tracks": [t.to_dict() for t in sim]}
