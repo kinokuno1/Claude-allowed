@@ -124,7 +124,25 @@ function newPlaylist() {
 }
 
 // ------------------------------------------------------------------ building blocks
-const art = (url, cls = "art") => `<div class="${cls}">${url ? `<img src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("music_note")}</div>`;
+const art = (url, cls = "art", tid = "") => `<div class="${cls}"${tid ? ` data-tid="${esc(tid)}"` : ""}>${url ? `<img src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("music_note")}</div>`;
+const tart = (t, cls = "art") => art(t.thumbnail, cls, t.id);
+
+// A cover that fails to load (expired link, removed video…) shows a note instead and is looked up again.
+const brokenArt = {}, reportedArt = new Set(); let brokenTimer = 0;
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const box = img.closest("[data-tid]") || img.parentElement;
+  if (!box?.matches?.(".art, .np-cover, [data-tid]")) return;
+  const tid = box.dataset?.tid, src = img.getAttribute("src");
+  img.remove();
+  if (box.classList.contains("art") && !box.querySelector("svg")) box.insertAdjacentHTML("beforeend", icon("music_note"));
+  if (tid && !reportedArt.has(tid) && trackById(tid)) {
+    reportedArt.add(tid); brokenArt[tid] = src;
+    clearTimeout(brokenTimer);
+    brokenTimer = setTimeout(() => { const b = { ...brokenArt }; for (const k in brokenArt) delete brokenArt[k]; api("artwork/refresh", { broken: b }).catch(() => {}); }, 800);
+  }
+}, true);
 const gradArt = (g, ic, cls = "art") => `<div class="${cls} grad" style="--g:${g}">${icon(ic)}</div>`;
 const badge = (src) => `<span class="badge b-${src}">${SOURCES[src]?.[1] || "WEB"}</span>`;
 const eqBars = () => `<span class="eq ${audio.paused ? "paused" : ""}"><i></i><i></i><i></i></span>`;
@@ -171,7 +189,7 @@ function trackTable(key, tracks, { playlistId, compact = false, head = true, off
     const isCur = cur === t.id, liked = S.lib.liked.includes(t.id);
     return `<div class="row-track${isCur ? " current" : ""}" data-play="${key}" data-i="${i}" tabindex="0">
       <div class="num">${isCur ? eqBars() : `<span class="n">${offset + i + 1}</span>`}<span class="p" data-rowplay title="Play">${icon(isCur && !audio.paused ? "pause" : "play_arrow")}</span></div>
-      <div class="ttl">${art(t.thumbnail)}<div class="ellip"><div class="t ellip">${esc(t.title)}</div>
+      <div class="ttl">${tart(t)}<div class="ellip"><div class="t ellip">${esc(t.title)}</div>
         <div class="s">${badge(t.source)}${offlineMark(t)}<span class="ellip">${esc(t.artist || "")}</span></div></div></div>
       <div class="col-album ellip">${SOURCES[t.source]?.[0] || "Web"}</div>
       <button class="icon-btn hov ${liked ? "liked" : ""}" data-like="${key}" data-i="${i}" title="${liked ? "Remove from Liked songs" : "Save to Liked songs"}">${icon(liked ? "favorite" : "favorite_border")}</button>
@@ -335,7 +353,7 @@ function homeHtml() {
   const empty = !recent.length && !S.lib.liked.length && !S.lib.playlists.length;
   const shelf = (title, items, more) => items ? `<div class="sec-head"><h2>${title}</h2><span class="spacer"></span>${more || ""}</div><div class="shelf">${items}</div>` : "";
   const recentCards = recent.map((t, i) => `<div class="card" data-playcard="recent" data-i="${i}" role="button" tabindex="0" title="${esc(t.title)}">
-      <div class="cover">${art(t.thumbnail)}<button class="fab ${Player.current()?.id === t.id && isPlaying() ? "live" : ""}" data-playcard="recent" data-i="${i}" title="Play">${icon(Player.current()?.id === t.id && !audio.paused ? "pause" : "play_arrow")}</button></div>
+      <div class="cover">${tart(t)}<button class="fab ${Player.current()?.id === t.id && isPlaying() ? "live" : ""}" data-playcard="recent" data-i="${i}" title="Play">${icon(Player.current()?.id === t.id && !audio.paused ? "pause" : "play_arrow")}</button></div>
       <div class="t ellip">${esc(t.title)}</div><div class="a">${esc(t.artist || SOURCES[t.source]?.[0])}</div></div>`).join("");
   const plCards = S.lib.playlists.map((p) => `<div class="card" data-go="pl:${p.id}" role="button" tabindex="0">
       <div class="cover">${art(plCover(p))}${fab("pl:" + p.id)}</div>
@@ -370,7 +388,7 @@ function renderSearchResults() {
       LISTS.search = r.tracks;
       const total = r.tracks.reduce((a, t) => a + (t.durationSec || 0), 0);
       h += `<div class="coll-head" style="padding-top:8px">${art(r.cover || r.tracks[0].thumbnail)}<div style="min-width:0"><div class="kind">Imported list</div>
-          <h1>${esc(r.title || "Imported list")}</h1><div class="stats">${r.tracks.length} songs<span class="muted">${total ? `, about ${Math.round(total / 60)} min` : ""}</span></div></div></div>
+          <h1>${esc(r.title || "Imported list")}</h1><div class="stats">${r.tracks.length} songs<span class="muted">${total ? `, about ${Math.round(total / 60)} min` : ""}</span>${s.artLeft ? `<span class="muted"> · getting song covers (${s.artLeft} left)…</span>` : ""}</div></div></div>
         <div class="coll-actions"><button class="fab xl" id="playall" title="Play">${icon("play_arrow")}</button>
           <button class="icon-btn" id="shufall" title="Shuffle play">${icon("shuffle")}</button>
           <button class="btn" id="saveall">${icon("playlist_add")}Save as playlist</button></div>
@@ -380,7 +398,7 @@ function renderSearchResults() {
     } else {
       const top = r.tracks[0];
       h += `<div class="top-result"><div><div class="sec-head" style="margin-top:0"><h2>Top result</h2></div>
-          <div class="top-card" data-playcard="search" data-i="0" role="button" tabindex="0">${art(top.thumbnail)}
+          <div class="top-card" data-playcard="search" data-i="0" role="button" tabindex="0">${tart(top)}
             <div class="t ellip">${esc(top.title)}</div><div class="muted">${badge(top.source)} &nbsp;${esc(top.artist || "")}</div>
             <button class="fab" data-playcard="search" data-i="0" title="Play">${icon("play_arrow")}</button></div></div>
         <div style="min-width:0"><div class="sec-head" style="margin-top:0"><h2>Songs</h2></div>${trackTable("search", r.tracks.slice(0, 4), { compact: true, head: false })}</div></div>`;
@@ -393,18 +411,38 @@ function renderSearchResults() {
   $("#playall")?.addEventListener("click", () => Player.play(r.tracks, 0, false, "search"));
   $("#shufall")?.addEventListener("click", () => Player.play(r.tracks, 0, true, "search"));
   $("#saveall")?.addEventListener("click", async () => { const p = await api("playlist/create", { name: r.title || "Imported", tracks: r.tracks, sourceUrl: r.sourceUrl, cover: r.cover });
+    api("artwork/refresh").catch(() => {}); // covers still being looked up are finished in the background
     toast(`Saved as playlist “${p.name}”`); await poll(); go("pl:" + p.id); });
 }
 const isLink = (q) => /https?:\/\/\S+|spotify:(track|album|playlist):|open\.spotify\.com\/track\//.test(q) || /^(www\.|m\.|vm\.)?[a-z0-9-]+\.(com|be|link|fi)\/\S+/i.test(q.trim());
+/** Imported Spotify lists only name their songs, so each song's own cover is looked up, 12 at a time,
+ *  and shown as it arrives. */
+async function fillArtwork(token, tracks) {
+  const s = S.search, need = tracks.filter((t) => t.source === "SPOTIFY");
+  if (!need.length) return;
+  s.artLeft = need.length; if (route() === "search") renderSearchResults();
+  for (let i = 0; i < need.length; i += 12) {
+    if (token !== s.token) return;
+    const chunk = need.slice(i, i + 12);
+    try {
+      const { art } = await api("artwork", { tracks: chunk });
+      for (const t of chunk) if (art[t.id]) t.thumbnail = art[t.id];
+    } catch { /* covers stay as they were */ }
+    if (token !== s.token) return;
+    s.artLeft = Math.max(0, need.length - i - chunk.length);
+    if (route() === "search") renderSearchResults();
+  }
+}
 async function runSearch() {
   const s = S.search, q = s.q.trim(); if (!q) return;
-  const my = ++s.token; s.loading = true; s.error = null; s.result = null; s.fromLink = isLink(q); renderSearchResults();
+  const my = ++s.token; s.loading = true; s.error = null; s.result = null; s.artLeft = 0; s.fromLink = isLink(q); renderSearchResults();
   try {
     const r = s.fromLink ? await api("resolve", { text: q }) : await api("search", { source: s.source, q });
     if (my !== s.token) return;
     s.result = r; if (!r.tracks.length) s.error = "Nothing found.";
     // Get the top result ready to play while you're still reading the list.
     if (r.tracks[0]) api("prepare", { track: r.tracks[0], prefetch: true }).catch(() => {});
+    if (s.fromLink) fillArtwork(my, r.tracks);
   } catch (e) { if (my === s.token) s.error = e.message; }
   if (my === s.token) { s.loading = false; if (route() === "search") renderSearchResults(); }
 }
@@ -545,28 +583,46 @@ const Lyrics = (() => {
     raf = 0;
     const lines = synced(); if (!lines) return;
     const idx = indexAt(lines, audio.currentTime || 0);
-    if (idx !== shownIdx) { shownIdx = idx; paint(idx, lines); }
+    if (idx !== shownIdx) { shownIdx = idx; paint(idx); }
     if (!audio.paused) raf = requestAnimationFrame(tick);
   }
   function wake(force = false) { if (force) shownIdx = -2; if (!raf) raf = requestAnimationFrame(tick); }
-  function paint(idx, lines) {
-    // full view
+  function paint(idx) {
+    // full view: lines change colour softly while the list glides to the line being sung
     const box = $("#lylines");
     if (box) {
       box.querySelectorAll(".ly-line").forEach((el, i) => { el.classList.toggle("on", i === idx); el.classList.toggle("past", i < idx); });
       const el = box.children[Math.max(0, idx)], sc = $("#lyscroll");
-      if (el && sc && Date.now() - userScrollAt > 3000) sc.scrollTo({ top: el.offsetTop - sc.clientHeight * 0.36, behavior: "smooth" });
+      if (el && sc && Date.now() - userScrollAt > 3000) glide(sc, el.offsetTop - sc.clientHeight * 0.36 + el.offsetHeight / 2);
     }
-    // card in the Now playing panel: the line being sung and the next ones
+    // card in the Now playing panel: the whole text slides up so the line being sung is on top
     const card = $("#lycardlines");
     if (card) {
-      const from = Math.max(0, idx), slice = lines.slice(from, from + 5);
-      card.innerHTML = slice.map(([, txt], k) => `<p class="${k === 0 && idx >= 0 ? "on" : ""}">${esc(txt) || "♪"}</p>`).join("");
+      [...card.children].forEach((el, i) => { el.classList.toggle("on", i === idx); el.classList.toggle("past", i < idx); });
+      const el = card.children[Math.max(0, idx)];
+      const y = el && idx > 0 ? el.offsetTop - card.children[0].offsetTop : 0;
+      if (el) card.parentElement.style.setProperty("--clear", `${el.offsetHeight + 4}px`); // the sung line always stays sharp
+      if (card.dataset.ready !== "1") { // first paint after (re)building the card: jump, don't slide
+        card.style.transition = "none"; card.style.transform = `translateY(${-y}px)`; void card.offsetHeight; card.style.transition = ""; card.dataset.ready = "1";
+      } else card.style.transform = `translateY(${-y}px)`;
     }
+  }
+  /** Smooth, slow scroll (the browser's own "smooth" is short and abrupt). */
+  let glideRaf = 0;
+  function glide(sc, target) {
+    cancelAnimationFrame(glideRaf);
+    target = Math.max(0, Math.min(target, sc.scrollHeight - sc.clientHeight));
+    const from = sc.scrollTop, dist = target - from, t0 = performance.now(), dur = Math.min(900, 450 + Math.abs(dist));
+    if (Math.abs(dist) < 1) return;
+    const ease = (x) => 1 - Math.pow(1 - x, 4);
+    const step = (now) => { const k = Math.min(1, (now - t0) / dur); sc.scrollTop = from + dist * ease(k); if (k < 1) glideRaf = requestAnimationFrame(step); };
+    glideRaf = requestAnimationFrame(step);
   }
   audio.addEventListener("play", () => wake(true));
   audio.addEventListener("seeked", () => wake(true));
-  document.addEventListener("wheel", (e) => { if (e.target.closest?.("#lyscroll")) userScrollAt = Date.now(); }, { passive: true });
+  document.addEventListener("wheel", (e) => { if (e.target.closest?.("#lyscroll")) { userScrollAt = Date.now(); cancelAnimationFrame(glideRaf); } }, { passive: true });
+  // the wavy background behind the big lyrics rests while the music is paused
+  ["play", "pause"].forEach((ev) => audio.addEventListener(ev, () => $(".ly-wrap")?.classList.toggle("paused", audio.paused)));
   return { get, prefetch, wake, indexAt, paint: () => { shownIdx = -2; wake(true); } };
 })();
 
@@ -697,7 +753,7 @@ function updateBar() {
   const key = JSON.stringify([t?.id, S.lib.liked.includes(t?.id), Player.preparing]);
   if (now.dataset.key !== key) {
     now.dataset.key = key;
-    now.innerHTML = t ? `${art(t.thumbnail)}<div class="ellip"><div class="t ellip" id="btitle">${esc(t.title)}</div><div class="a ellip">${Player.preparing ? "Loading…" : esc(t.artist || SOURCES[t.source]?.[0])}</div></div>
+    now.innerHTML = t ? `${tart(t)}<div class="ellip"><div class="t ellip" id="btitle">${esc(t.title)}</div><div class="a ellip">${Player.preparing ? "Loading…" : esc(t.artist || SOURCES[t.source]?.[0])}</div></div>
       <button class="icon-btn ${S.lib.liked.includes(t.id) ? "liked" : ""}" id="blike" title="${S.lib.liked.includes(t.id) ? "Remove from Liked songs" : "Save to Liked songs"}">${icon(S.lib.liked.includes(t.id) ? "favorite" : "favorite_border")}</button>` : "";
     if (t) { $("#blike").onclick = () => toggleLike(t); now.querySelector(".art").onclick = $("#btitle").onclick = () => { if (!npVisible()) toggleNp(); }; }
   }
@@ -726,46 +782,62 @@ audio.addEventListener("durationchange", tickProgress);
 
 // ------------------------------------------------------------------ now-playing panel
 function setupNp() {
-  $("#np").innerHTML = `<div class="panel-head"><h2 id="npctx" class="ellip">Now playing</h2><span class="spacer"></span>
+  $("#np-song").innerHTML = `<div class="panel-head"><h2 id="npctx" class="ellip">Now playing</h2><span class="spacer"></span>
       <button class="round small" id="npclose" title="Hide Now playing view">${icon("close")}</button></div>
-    <div class="np-body"><div id="npmain"></div><div id="lyslot"></div><div id="npqueue"></div></div>`;
+    <div class="np-songbody" id="npmain"></div>`;
+  $("#np-lyrics").innerHTML = `<div id="lyslot" style="display:flex;flex:1;min-height:0"></div>`;
+  $("#np-queue").innerHTML = `<div class="panel-head"><h2>Next in queue</h2><span class="spacer"></span><span class="muted small" id="qcount"></span></div>
+    <div class="q-list" id="npqueue"></div>`;
   $("#npclose").onclick = toggleNp;
   $("#lyslot").addEventListener("click", () => { if (Player.current()) route() === "lyrics" ? back() : go("lyrics"); });
   $("#lyslot").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#lyslot").click(); });
+  // keep the sliding lyrics lined up when the section changes size
+  new ResizeObserver(() => Lyrics.paint()).observe($("#np-lyrics"));
 }
 function lyricsCardHtml(t) {
-  const e = Lyrics.get(t);
+  const e = t ? Lyrics.get(t) : null;
   let body;
-  if (e.status === "loading") body = `<p class="dim">Looking for lyrics…</p>`;
+  if (!e) body = `<p class="dim">Lyrics show up here while a song plays.</p>`;
+  else if (e.status === "loading") body = `<p class="dim">Looking for lyrics…</p>`;
   else if (e.status === "error") body = `<p class="dim">Couldn't reach the lyrics service. Check your internet connection.</p>`;
   else if (e.data.instrumental) body = `<p class="on">♪ Instrumental</p>`;
-  else if (e.data.synced) body = `<div id="lycardlines"></div>`;
-  else if (e.data.plain) body = `<div class="plain">${e.data.plain.split("\n").filter(Boolean).slice(0, 5).map((l) => `<p>${esc(l)}</p>`).join("")}</div>`;
+  else if (e.data.synced) body = `<div class="ly-view"><div class="ly-track" id="lycardlines">${e.data.synced.map(([, txt]) => `<p>${esc(txt) || "♪"}</p>`).join("")}</div><div class="ly-blur"></div></div>`;
+  else if (e.data.plain) body = `<div class="ly-view plain">${e.data.plain.split("\n").filter(Boolean).slice(0, 40).map((l) => `<p>${esc(l)}</p>`).join("")}<div class="ly-blur"></div></div>`;
   else body = `<p class="dim">No lyrics found for this song.</p>`;
-  return `<div class="ly-card ${route() === "lyrics" ? "open" : ""}" role="button" tabindex="0" title="${route() === "lyrics" ? "Close lyrics" : "Show lyrics in the big view"}">
-    <h3>Lyrics<span class="spacer"></span>${icon(route() === "lyrics" ? "close" : "open_in_full")}</h3>${body}</div>`;
+  const open = route() === "lyrics";
+  return `<div class="ly-card ${open ? "open" : ""}" role="button" tabindex="0" title="${open ? "Close lyrics" : "Show lyrics in the big view"}">
+    <h3>Lyrics<span class="spacer"></span>${t ? icon(open ? "close" : "open_in_full") : ""}</h3>${body}</div>`;
 }
 function renderNp(force = false) {
   if (!npVisible()) return;
   const t = Player.current(), main = $("#npmain"), q = $("#npqueue"), ly = $("#lyslot");
   $("#npctx").textContent = t ? collName(Player.context) : "Now playing";
-  if (!t) { main.innerHTML = `<div class="empty">${icon("music_note")}<p>Nothing playing yet.<br>Pick a song and it shows up here, with its lyrics and what plays next.</p></div>`; q.innerHTML = ly.innerHTML = ""; main.dataset.key = ly.dataset.key = ""; return; }
+  if (!t) {
+    if (main.dataset.key !== "none") {
+      main.dataset.key = "none"; ly.dataset.key = "none";
+      main.innerHTML = `<div class="empty">${icon("music_note")}<p>Nothing playing yet.<br>Pick a song and it shows up here.</p></div>`;
+      ly.innerHTML = lyricsCardHtml(null);
+      q.innerHTML = `<p class="muted q-empty">Songs you play next show up here.</p>`; $("#qcount").textContent = "";
+    }
+    return;
+  }
   const liked = S.lib.liked.includes(t.id), p = S.progress[t.id];
-  const upNext = Player.queue.slice(Player.index + 1, Player.index + 31); LISTS.queue = upNext;
-  const key = JSON.stringify([t.id, liked, Player.preparing, p, upNext.map((x) => x.id), S.offline.has(t.id)]);
+  const upNext = Player.queue.slice(Player.index + 1, Player.index + 51); LISTS.queue = upNext;
+  const key = JSON.stringify([t.id, t.thumbnail, liked, Player.preparing, p, upNext.map((x) => x.id + (x.thumbnail || "")), S.offline.has(t.id)]);
   if (main.dataset.key !== key) {
     main.dataset.key = key;
-    main.innerHTML = `<div class="np-cover">${t.thumbnail ? `<img src="${esc(t.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ""}
+    main.innerHTML = `<div class="np-cover" data-tid="${esc(t.id)}">${t.thumbnail ? `<img src="${esc(t.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ""}
         ${Player.preparing ? `<div class="wait"><span class="spinner" style="width:32px;height:32px;border-width:3px"></span><span>${p !== undefined && p >= 0 ? `Fetching audio ${Math.round(p * 100)}%` : "Finding audio…"}</span></div>` : ""}</div>
       <div class="np-info"><div style="flex:1;min-width:0"><div class="t">${esc(t.title)}</div><div class="a ellip">${badge(t.source)} ${offlineMark(t)} ${esc(t.artist || "")}</div></div>
         <button class="icon-btn ${liked ? "liked" : ""}" id="nplike" title="${liked ? "Remove from Liked songs" : "Save to Liked songs"}">${icon(liked ? "favorite" : "favorite_border")}</button>
         <button class="icon-btn" data-menu="now" data-i="0" title="More options">${icon("more_vert")}</button></div>`;
     LISTS.now = [t];
     $("#nplike").onclick = () => toggleLike(t);
-    q.innerHTML = `<div class="q-card"><h3>Next in queue<span class="spacer"></span><span class="muted small" style="font-weight:400">${Player.queue.length - Player.index - 1 || ""}</span></h3>
-      ${upNext.length ? upNext.map((x, i) => `<div class="q-item" data-q="${i}" role="button" tabindex="0">${art(x.thumbnail)}<div class="ellip" style="flex:1"><div class="t ellip">${esc(x.title)}</div>
-        <div class="muted small ellip">${esc(x.artist || "")}</div></div><button class="icon-btn" data-rmq="${i}" title="Remove from queue">${icon("close")}</button></div>`).join("")
-        : `<p class="muted small" style="margin:4px 8px 8px">${S.settings.autoplay ? "Autoplay adds similar songs when the queue runs low." : "The queue is empty."}</p>`}</div>`;
+    const left = Player.queue.length - Player.index - 1;
+    $("#qcount").textContent = left ? `${left} song${left === 1 ? "" : "s"}` : "";
+    q.innerHTML = upNext.length ? upNext.map((x, i) => `<div class="q-item" data-q="${i}" role="button" tabindex="0">${tart(x)}<div class="ellip" style="flex:1"><div class="t ellip">${esc(x.title)}</div>
+        <div class="muted ellip">${esc(x.artist || "")}</div></div><button class="icon-btn" data-rmq="${i}" title="Remove from queue">${icon("close")}</button></div>`).join("")
+      : `<p class="muted q-empty">${S.settings.autoplay ? "Autoplay adds similar songs when the queue runs low." : "The queue is empty."}</p>`;
     q.querySelectorAll("[data-q]").forEach((r) => r.onclick = (e) => {
       const rm = e.target.closest("[data-rmq]"); if (rm) return Player.remove(Player.index + 1 + +rm.dataset.rmq);
       Player.jump(Player.index + 1 + +r.dataset.q); });
@@ -787,8 +859,8 @@ function lyricsHtml() {
   else if (d.plain) { lines = d.plain.split("\n").map((l) => `<p class="ly-line plain">${esc(l) || "&nbsp;"}</p>`).join(""); note = "These lyrics aren't synced to the song."; }
   else lines = `<p class="ly-msg">No lyrics found for this song.<br><span class="small">LRCLIB is made by its community, so new or rare songs may be missing.</span></p>`;
   const focus = $("#app").classList.contains("focus");
-  return `<div class="ly-wrap" data-key="${esc(t.id)}|${e.status}">
-    <div class="ly-bg">${cover ? `<img class="b1" src="${esc(cover)}" alt="" referrerpolicy="no-referrer"><img class="b2" src="${esc(cover)}" alt="" referrerpolicy="no-referrer">` : ""}</div>
+  return `<div class="ly-wrap ${audio.paused ? "paused" : ""}" data-key="${esc(t.id)}|${e.status}">
+    <div class="ly-bg">${cover ? ["b1", "b2", "b3", "b4"].map((c) => `<img class="${c}" src="${esc(cover)}" alt="" referrerpolicy="no-referrer">`).join("") : ""}</div>
     <div class="ly-scroll" id="lyscroll"><div class="ly-lines ${d.synced ? "synced" : ""}" id="lylines">${lines}</div>
       <p class="ly-credit">${note ? `${note} · ` : ""}${e.status === "ok" && d.found ? `Lyrics from LRCLIB${d.track ? ` (“${esc(d.track)}” by ${esc(d.artist)})` : ""}` : ""}</p></div>
     <div class="ly-top">${art(cover)}<div class="ellip"><div class="t ellip">${esc(t.title)}</div><div class="a ellip">${esc(t.artist || "")}</div></div><span class="spacer"></span>
@@ -806,8 +878,146 @@ function bindLyrics() {
   Lyrics.paint();
 }
 
+// ------------------------------------------------------------------ resizable sections
+/** Drags a splitter. onMove gets how far the mouse moved (px) since the drag started. */
+function dragSplit(el, kind, { start, move, end, reset }) {
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); el.setPointerCapture(e.pointerId);
+    const x0 = e.clientX, y0 = e.clientY; start?.();
+    el.classList.add("drag"); document.documentElement.classList.add("resizing", kind);
+    let raf = 0, last = e;
+    const onMove = (ev) => { last = ev; if (!raf) raf = requestAnimationFrame(() => { raf = 0; move(last.clientX - x0, last.clientY - y0); }); };
+    const onUp = () => {
+      el.removeEventListener("pointermove", onMove); el.removeEventListener("pointerup", onUp); el.removeEventListener("pointercancel", onUp);
+      el.classList.remove("drag"); document.documentElement.classList.remove("resizing", kind); end?.();
+    };
+    el.addEventListener("pointermove", onMove); el.addEventListener("pointerup", onUp); el.addEventListener("pointercancel", onUp);
+  });
+  if (reset) el.addEventListener("dblclick", reset);
+}
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const SIZES = { side: store.get("tunio.sideW", 300), np: store.get("tunio.npW", 320), rows: store.get("tunio.npRows", [0.56, 0.2, 0.24]) };
+const ROW_MIN = [150, 100, 80]; // song, lyrics, queue (px)
+function applySizes() {
+  const app = $("#app");
+  app.style.setProperty("--side-user", SIZES.side + "px");
+  app.style.setProperty("--np-user", SIZES.np + "px");
+  document.querySelectorAll(".np-sec").forEach((sec, i) => sec.style.setProperty("--grow", SIZES.rows[i]));
+}
+function setupSplitters() {
+  applySizes();
+  const app = $("#app"), roomForMain = () => innerWidth - 16 - 16 - 380; // keep at least 380 px for the page
+  // Your Library: drag narrower to shrink it to covers only, wider to bring the names back
+  let w0 = 0;
+  dragSplit($("#split-side"), "col", {
+    start: () => { w0 = $("#side").getBoundingClientRect().width; },
+    move: (dx) => {
+      const w = w0 + dx, npW = npVisible() ? SIZES.np : 0;
+      if (w < 150) { if (!layout.sideMin) { layout.sideMin = true; applyLayout(); renderSide(); } return; }
+      if (layout.sideMin) { layout.sideMin = false; applyLayout(); renderSide(); }
+      SIZES.side = Math.round(clamp(w, 220, Math.min(560, roomForMain() - npW))); applySizes();
+    },
+    end: () => { store.set("tunio.sideW", SIZES.side); store.set("tunio.sideMin", layout.sideMin); renderNp(true); },
+    reset: () => { SIZES.side = 300; layout.sideMin = false; applyLayout(); applySizes(); renderSide(); store.set("tunio.sideW", 300); store.set("tunio.sideMin", false); },
+  });
+  // Now playing column
+  dragSplit($("#split-np"), "col", {
+    start: () => { w0 = $("#np").getBoundingClientRect().width; },
+    move: (dx) => { const sideW = layout.sideMin ? 72 : SIZES.side; SIZES.np = Math.round(clamp(w0 - dx, 260, Math.min(620, roomForMain() - sideW))); applySizes(); },
+    end: () => { store.set("tunio.npW", SIZES.np); renderNp(true); },
+    reset: () => { SIZES.np = 320; applySizes(); store.set("tunio.npW", 320); },
+  });
+  // song / lyrics / queue
+  document.querySelectorAll(".split.row").forEach((sp) => {
+    const i = +sp.dataset.row; let h = [];
+    dragSplit(sp, "row", {
+      start: () => { h = [...document.querySelectorAll(".np-sec")].map((x) => x.getBoundingClientRect().height); },
+      move: (_, dy) => {
+        const pair = h[i] + h[i + 1], a = clamp(h[i] + dy, ROW_MIN[i], pair - ROW_MIN[i + 1]);
+        const next = h.slice(); next[i] = a; next[i + 1] = pair - a;
+        const total = next.reduce((x, y) => x + y, 0);
+        SIZES.rows = next.map((x) => +(x / total).toFixed(4)); applySizes();
+      },
+      end: () => store.set("tunio.npRows", SIZES.rows),
+      reset: () => { SIZES.rows = [0.56, 0.2, 0.24]; applySizes(); store.set("tunio.npRows", SIZES.rows); },
+    });
+  });
+}
+
+// ------------------------------------------------------------------ window (Tunio.exe has no Windows title bar: the top bar is it)
+const Win = (() => {
+  let api = null, maxed = false;
+  const dpr = () => devicePixelRatio || 1;
+  const MAX_ICON = '<svg viewBox="0 0 10 10"><path d="M.5.5h9v9h-9z"/></svg>';
+  const RESTORE_ICON = '<svg viewBox="0 0 10 10"><path d="M2.5 2.5h7v7h-7zM.5 7.5V.5h7"/></svg>';
+  function setMax(m) {
+    maxed = m; document.documentElement.classList.toggle("maxed", m);
+    $("#wmax").innerHTML = m ? RESTORE_ICON : MAX_ICON; $("#wmax").title = m ? "Restore" : "Maximize";
+  }
+  async function toggleMax() { const st = await api.toggle_maximize(); setMax(st.maximized); }
+  /** Moves or resizes the window while the mouse is held; calls are queued so they never pile up. */
+  function track(el, e, onDelta) {
+    el.setPointerCapture(e.pointerId);
+    const x0 = e.screenX, y0 = e.screenY; let last = e, busy = false, dirty = false, done = false;
+    const pump = async () => {
+      if (busy) { dirty = true; return; }
+      busy = true;
+      try { do { dirty = false; await onDelta((last.screenX - x0) * dpr(), (last.screenY - y0) * dpr(), last); } while (dirty && !done); }
+      finally { busy = false; }
+    };
+    const onMove = (ev) => { last = ev; pump(); };
+    const onUp = () => { done = true; el.removeEventListener("pointermove", onMove); el.removeEventListener("pointerup", onUp); el.removeEventListener("pointercancel", onUp); };
+    el.addEventListener("pointermove", onMove); el.addEventListener("pointerup", onUp); el.addEventListener("pointercancel", onUp);
+  }
+  async function init() {
+    if (api || !window.pywebview?.api?.toggle_maximize) return;
+    api = window.pywebview.api;
+    document.documentElement.classList.add("framed");
+    $("#winctl").classList.remove("hidden"); $("#edges").classList.remove("hidden");
+    $("#wmin").onclick = () => api.minimize(); $("#wmax").onclick = toggleMax; $("#wclose").onclick = () => api.close();
+    setMax((await api.state()).maximized);
+    const top = $("#top");
+    const isBar = (t) => !t.closest("button, input, label, a, .searchbox");
+    top.addEventListener("dblclick", (e) => { if (isBar(e.target)) toggleMax(); });
+    // drag the window by any empty part of the top bar
+    top.addEventListener("pointerdown", async (e) => {
+      if (e.button !== 0 || !isBar(e.target)) return;
+      const st = await api.state(); let rect = st.rect, moved = false;
+      setMax(st.maximized);
+      track(top, e, async (dx, dy, ev) => {
+        if (!moved) {
+          if (Math.hypot(dx, dy) < 5 * dpr()) return;
+          moved = true;
+          if (maxed) { // pull a maximized window down: back to normal size, under the mouse
+            const r = await api.unmaximize_at(ev.screenX * dpr(), ev.screenY * dpr(), e.clientX / innerWidth); setMax(false);
+            rect = [r.rect[0] - dx, r.rect[1] - dy, r.rect[2], r.rect[3]];
+          }
+        }
+        await api.set_rect(rect[0] + dx, rect[1] + dy, rect[2], rect[3]);
+      });
+    });
+    // resize by the window edges and corners
+    $("#edges").addEventListener("pointerdown", async (e) => {
+      const dir = e.target.dataset?.e; if (!dir || e.button !== 0) return;
+      e.preventDefault();
+      const r0 = (await api.state()).rect, minW = 820 * dpr(), minH = 600 * dpr();
+      track(e.target, e, async (dx, dy) => {
+        let [x, y, w, h] = r0;
+        if (dir.includes("e")) w = Math.max(minW, r0[2] + dx);
+        if (dir.includes("s")) h = Math.max(minH, r0[3] + dy);
+        if (dir.includes("w")) { w = Math.max(minW, r0[2] - dx); x = r0[0] + r0[2] - w; }
+        if (dir.includes("n")) { h = Math.max(minH, r0[3] - dy); y = r0[1] + r0[3] - h; }
+        await api.set_rect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+      });
+    });
+  }
+  window.addEventListener("pywebviewready", init);
+  return { init };
+})();
+
 // ------------------------------------------------------------------ start
-setupTop(); setupBar(); setupNp(); applyLayout();
-window.addEventListener("resize", () => { renderNp(); $("#bnp").classList.toggle("on", npVisible()); });
+setupTop(); setupBar(); setupNp(); applyLayout(); setupSplitters(); Win.init();
+window.addEventListener("resize", () => { renderNp(); $("#bnp").classList.toggle("on", npVisible()); Lyrics.paint(); });
 render(true);
 poll();

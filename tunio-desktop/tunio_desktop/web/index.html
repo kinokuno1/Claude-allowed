@@ -12,6 +12,7 @@
 <div id="app">
   <header id="top">
     <div class="nav">
+      <span class="logo" title="Tunio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></span>
       <button class="round" id="hback" title="Back (Alt+←)"></button>
       <button class="round" id="hfwd" title="Forward (Alt+→)"></button>
     </div>
@@ -29,10 +30,26 @@
   </header>
 
   <aside id="side" aria-label="Your Library"></aside>
+  <div class="split col" id="split-side" title="Drag to resize" role="separator" aria-orientation="vertical"></div>
   <main id="screen" tabindex="-1"></main>
-  <aside id="np" aria-label="Now playing"></aside>
+  <div class="split col" id="split-np" title="Drag to resize" role="separator" aria-orientation="vertical"></div>
+  <aside id="np" aria-label="Now playing">
+    <section class="np-sec" id="np-song"></section>
+    <div class="split row" data-row="0" role="separator" aria-orientation="horizontal"></div>
+    <section class="np-sec" id="np-lyrics"></section>
+    <div class="split row" data-row="1" role="separator" aria-orientation="horizontal"></div>
+    <section class="np-sec" id="np-queue"></section>
+  </aside>
   <footer id="bar" aria-label="Player"></footer>
 </div>
+
+<!-- Window buttons and resize edges: only in the Windows app (it has no title bar of its own). -->
+<div id="winctl" class="hidden">
+  <button id="wmin" title="Minimize"><svg viewBox="0 0 10 10"><path d="M0 5h10" /></svg></button>
+  <button id="wmax" title="Maximize"><svg viewBox="0 0 10 10"><path d="M.5.5h9v9h-9z" /></svg></button>
+  <button id="wclose" class="close" title="Close"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" /></svg></button>
+</div>
+<div id="edges" class="hidden"><i data-e="n"></i><i data-e="s"></i><i data-e="w"></i><i data-e="e"></i><i data-e="nw"></i><i data-e="ne"></i><i data-e="sw"></i><i data-e="se"></i></div>
 
 <div id="toasts"></div>
 <div id="modal" class="hidden"></div>

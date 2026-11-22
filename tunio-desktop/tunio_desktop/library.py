@@ -76,7 +76,31 @@ class Library:
             d = t.to_dict()
             if old and old.get("matchedUrl") and not d.get("matchedUrl"):
                 d["matchedUrl"] = old["matchedUrl"]
+            if old and old.get("artChecked"):  # keep a cover that was looked up for this song
+                d["artChecked"] = True
+                d["thumbnail"] = old.get("thumbnail") or d.get("thumbnail")
             self.data["tracks"][t.id] = d
+
+    def needs_artwork(self) -> list[Track]:
+        """Songs without a cover, and Spotify songs not checked yet (they were given the playlist's cover)."""
+        with self.lock:
+            return [Track.from_dict(d) for d in self.data["tracks"].values()
+                    if not d.get("artChecked") and (not d.get("thumbnail") or d.get("source") == "SPOTIFY")]
+
+    def set_artwork(self, art: dict[str, str | None]):
+        """Stores looked-up covers (None = nothing better found; the song keeps what it had)."""
+        with self.lock:
+            changed = False
+            for tid, url in art.items():
+                d = self.data["tracks"].get(tid)
+                if d is None:
+                    continue
+                if url:
+                    d["thumbnail"] = url
+                d["artChecked"] = True
+                changed = True
+            if changed:
+                self._save()
 
     def track(self, tid: str) -> Track | None:
         d = self.data["tracks"].get(tid)

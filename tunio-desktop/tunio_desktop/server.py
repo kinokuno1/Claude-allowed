@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from . import engine
 from .core import Track
 from .library import Library
+from .artwork import Artwork
 from .lyrics import Lyrics
 
 # In Tunio.exe the UI files are unpacked next to this module (PyInstaller --add-data ...;tunio_desktop/web).
@@ -35,6 +36,30 @@ class Api:
             from .paths import CACHE_DIR
             lyrics = Lyrics(os.path.join(CACHE_DIR, "lyrics"))
         self.lyrics = lyrics
+        from .paths import CACHE_DIR
+        self.art = Artwork(os.path.join(CACHE_DIR, "artwork.json"))
+        self._art_busy = threading.Lock()
+
+    def refresh_artwork(self, broken: dict[str, str] | None = None):
+        """In the background: finds covers for library songs that need one (or whose image failed to load)."""
+        def run():
+            with self._art_busy:
+                todo = self.lib.needs_artwork()
+                for tid, url in (broken or {}).items():
+                    t = self.lib.track(tid)
+                    if t:
+                        todo.append(t)
+                for i in range(0, len(todo), 12):  # save in small batches, so covers appear as they're found
+                    batch = todo[i:i + 12]
+                    urls = list(self.art.pool.map(lambda t: self._cover(t, (broken or {}).get(t.id)), batch))
+                    self.lib.set_artwork({t.id: u for t, u in zip(batch, urls)})
+        threading.Thread(target=run, daemon=True, name="artwork-refresh").start()
+
+    def _cover(self, t: Track, broken: str | None):
+        try:
+            return self.art.get(t, broken)
+        except Exception:  # noqa: BLE001
+            return None
 
     def handle(self, path: str, body: dict):
         lib = self.lib
@@ -46,6 +71,14 @@ class Api:
             return engine.resolve(body["text"]).to_dict()
         if path == "prepare":
             return self.prepare(Track.from_dict(body["track"]), prefetch=bool(body.get("prefetch")))
+        if path == "artwork":  # covers for songs on screen (e.g. a Spotify playlist being imported)
+            tracks = _tracks(body)[:24]
+            art = self.art.many(tracks)
+            self.lib.set_artwork({t.id: art.get(t.id) for t in tracks if self.lib.track(t.id)})
+            return {"art": art}
+        if path == "artwork/refresh":
+            self.refresh_artwork({k: v for k, v in (body.get("broken") or {}).items() if isinstance(k, str)})
+            return {"ok": True}
         if path == "lyrics":
             return self.lyrics.get(Track.from_dict(body["track"]))
         if path == "similar":
@@ -238,6 +271,7 @@ def start(lib: Library | None = None, port: int = 0) -> tuple[ThreadingHTTPServe
     threading.Thread(target=engine.ensure_deno, daemon=True).start()
     token = secrets.token_urlsafe(24)
     api = Api(lib or Library())
+    api.refresh_artwork()  # fill in missing covers (and Spotify songs that only had their playlist's cover)
     httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(api, token))
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
