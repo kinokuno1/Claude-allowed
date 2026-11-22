@@ -81,6 +81,15 @@ struct SearchView: View {
             if new.isEmpty { result = nil; error = nil }
         }
         .onChange(of: source) { _, _ in if !query.isEmpty && !Engine.isLink(query) { run() } }
+        .onChange(of: ui.pendingSearch) { _, _ in takePending() }
+        .onAppear { takePending() }
+    }
+
+    private func takePending() {
+        guard let q = ui.pendingSearch, !q.isEmpty else { return }
+        ui.pendingSearch = nil
+        query = q
+        run()
     }
 
     private func run() {

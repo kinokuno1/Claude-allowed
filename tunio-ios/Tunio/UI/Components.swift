@@ -168,6 +168,8 @@ final class UIState: ObservableObject {
     @Published var showPlayer = false
     @Published var addToPlaylist: [Track]? = nil
     @Published var toast: String?
+    /// A search asked for from outside (tunio://search?q=…)
+    @Published var pendingSearch: String?
 }
 
 struct AddToPlaylistSheet: View {

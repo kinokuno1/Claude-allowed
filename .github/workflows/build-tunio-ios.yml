@@ -50,6 +50,31 @@ jobs:
           ls -la Tunio.ipa
           lipo -info "$APP/Tunio"
 
+      - name: Try it in the iPhone simulator (screenshots)
+        continue-on-error: true
+        run: |
+          xcodebuild -project Tunio.xcodeproj -scheme Tunio -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath simbuild \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- build > sim.log 2>&1 || { grep "error:" sim.log | head -30; exit 1; }
+          DEV=$(xcrun simctl list devices available | grep -E "^ +iPhone [0-9]+ (Pro )?\(" | tail -1 | grep -oE "[0-9A-F-]{36}")
+          echo "Simulator: $DEV"
+          xcrun simctl boot "$DEV" && xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl install "$DEV" simbuild/Build/Products/Release-iphonesimulator/Tunio.app
+          shot() { xcrun simctl io "$DEV" screenshot "shots/$1.png" >/dev/null 2>&1; sips -Z 520 -s format jpeg -s formatOptions 55 "shots/$1.png" --out "shots/$1.jpg" >/dev/null; echo "SHOT-BEGIN $1"; base64 -i "shots/$1.jpg" | tr -d '\n'; echo; echo "SHOT-END $1"; }
+          mkdir -p shots
+          xcrun simctl launch "$DEV" ch.tunio.ios; sleep 10; shot 1-home
+          xcrun simctl openurl "$DEV" "tunio://search?q=daft%20punk%20get%20lucky"; sleep 12; shot 2-search
+          xcrun simctl openurl "$DEV" "tunio://play?q=daft%20punk%20get%20lucky"; sleep 25; shot 3-player
+          echo "--- app log"; xcrun simctl spawn "$DEV" log show --last 3m --style compact --predicate 'process == "Tunio"' 2>/dev/null | grep -viE "flagged|subsystem: com.apple.(defaults|runningboard)" | tail -40
+          xcrun simctl spawn "$DEV" launchctl list | grep -i tunio && echo "Tunio is still running"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Tunio-iOS-screenshots
+          path: tunio-ios/shots/
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         with:
           name: Tunio-iOS

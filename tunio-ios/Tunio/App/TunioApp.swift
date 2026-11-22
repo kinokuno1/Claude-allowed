@@ -10,12 +10,6 @@ struct TunioApp: App {
                 .environmentObject(ui)
                 .preferredColorScheme(.dark)
                 .tint(Theme.accentLight)
-                .onOpenURL { url in
-                    if url.scheme == "tunio", url.host == "pair" {
-                        HomeServer.shared.pair(url)
-                        ui.toast = "Home server added"
-                    }
-                }
                 .task {
                     await HomeServer.shared.check(force: true)
                     Library.shared.fillArtwork()
@@ -49,7 +43,33 @@ struct RootView: View {
         }
         .overlay(alignment: .top) { toast }
         .onChange(of: player.message) { _, m in if let m { ui.toast = m; player.message = nil } }
+        .onOpenURL(perform: open)
         .onChange(of: downloads.lastError) { _, m in if let m { ui.toast = m; downloads.lastError = nil } }
+    }
+
+    /// tunio://pair?u=…&k=… (home server QR code), tunio://search?q=…, tunio://play?q=… (plays the top YouTube result;
+    /// handy for Shortcuts and Siri).
+    private func open(_ url: URL) {
+        guard url.scheme == "tunio" else { return }
+        let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value ?? ""
+        switch url.host {
+        case "pair":
+            HomeServer.shared.pair(url)
+            ui.toast = "Home server added"
+        case "search":
+            ui.showPlayer = false
+            tab = 1
+            ui.pendingSearch = q
+        case "play" where !q.isEmpty:
+            Task {
+                do {
+                    guard let first = try await Engine.search(q, in: .youtube).first else { ui.toast = "Nothing found for “\(q)”"; return }
+                    player.play([first], context: "Search")
+                    ui.showPlayer = true
+                } catch { ui.toast = error.localizedDescription }
+            }
+        default: break
+        }
     }
 
     @ViewBuilder private var mini: some View {
