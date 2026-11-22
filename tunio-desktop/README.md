@@ -1,6 +1,6 @@
 # Tunio for Windows
 
-The Windows version of Tunio. It has the same features and look as the Android app, but runs as one program: **Tunio.exe**.
+The Windows version of Tunio. It has the same features as the Android app, with a desktop layout like Spotify's, and runs as one program: **Tunio.exe**.
 
 ## Download
 
@@ -14,9 +14,11 @@ It needs Windows 10 or 11 with the Microsoft Edge WebView2 runtime, which is alr
 - **Spotify:** Spotify songs play from YouTube, matched by title, artist and length. For private playlists, open the Spotify app, select the songs (Ctrl+A), copy (Ctrl+C) and paste them into Search.
 - **Playback:** songs start streaming right away, and the next song is prepared in advance. While you read search results, the top one is prepared too. Recent searches are remembered for 10 minutes. When 3 or fewer songs are left, **autoplay** adds similar songs.
 - **Library:** Liked songs, playlists (create, rename, delete, *Save as playlist*) and recently played.
-- **Offline:** ⋮ → **Download**, or **Download N** on a playlist. Files go to your **Music\Tunio** folder and download in the background.
-- **Keyboard:** Space plays and pauses, Esc goes back, and the keyboard media keys work too.
-- **Look:** the same liquid-glass design as the phone app. The floating tab bar, mini player and buttons bend the light behind them. The tab pill braces, stretches and wobbles, and the icons flash when selected.
+- **Offline:** right-click a song → **Download**, or the ⤓ button on a playlist. Files go to your **Music\Tunio** folder and download in the background.
+- **Layout:** a desktop layout like Spotify's. Your Library is on the left (click its title to shrink it to icons), the page is in the middle, and **Now playing** is on the right with the cover, a live audio visualizer and what plays next. The player bar is at the bottom with shuffle, repeat, a seek bar and **volume** (drag it, scroll it, or click the speaker to mute). Back and forward work like in a browser.
+- **Songs:** double-click a song to play it, or click the ▶ that appears on hover. Right-click a song for more options.
+- **Keyboard:** Space plays and pauses, Ctrl+→ and Ctrl+← skip, Ctrl+↑ and Ctrl+↓ change the volume, Ctrl+K jumps to search, and Alt+← and Alt+→ go back and forward. The keyboard media keys work too.
+- **Colours:** the 60-30-10 rule with the app's own palette. 60 % is the near-black main view, 30 % is the dark violet-grey panels and cards, and 10 % is the purple-to-pink accent, used only for play buttons, progress, volume, the playing song and Liked hearts.
 
 ## Where things are
 

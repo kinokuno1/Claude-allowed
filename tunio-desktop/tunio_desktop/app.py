@@ -32,7 +32,7 @@ def main():
     import webview
 
     webview.create_window(
-        f"Tunio {__version__}", url, width=1180, height=800, min_size=(380, 600), background_color="#0E0E12",
+        f"Tunio {__version__}", url, width=1320, height=840, min_size=(820, 600), background_color="#0E0E12",
     )
     webview.start(private_mode=False, storage_path=os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Tunio", "webview"))
     httpd.shutdown()
