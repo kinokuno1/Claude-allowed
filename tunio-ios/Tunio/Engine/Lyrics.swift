@@ -20,7 +20,7 @@ enum Lyrics {
     private static let lock = NSLock()
 
     static func get(_ t: Track) async -> LyricsResult? {
-        lock.lock(); if let hit = cache[t.id] { lock.unlock(); return hit }; lock.unlock()
+        if let hit = lock.withLock({ cache[t.id] }) { return hit }
         var result = LyricsResult()
         for (artist, title) in guesses(t).prefix(4) {
             var q = ["artist_name": artist, "track_name": title]
@@ -33,7 +33,7 @@ enum Lyrics {
                 if let c = close { result = parse(c); if result.found { break } }
             }
         }
-        lock.lock(); cache[t.id] = result; lock.unlock()
+        lock.withLock { cache[t.id] = result }
         return result
     }
 

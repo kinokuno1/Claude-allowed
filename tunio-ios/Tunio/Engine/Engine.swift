@@ -10,7 +10,7 @@ enum Engine {
 
     static func search(_ query: String, in source: SearchSource) async throws -> [Track] {
         let key = "\(source.rawValue)|\(query.lowercased())"
-        if let (hit, at) = recent[key], Date().timeIntervalSince(at) < 600 { return hit }
+        if case let (hit, at)? = recent[key], Date().timeIntervalSince(at) < 600 { return hit }
         let out: [Track]
         switch source {
         case .youtube: out = try await searchYouTube(query)

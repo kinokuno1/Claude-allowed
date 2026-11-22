@@ -88,32 +88,35 @@ struct TrackRow: View {
 
     var body: some View {
         let current = player.current?.id == track.id
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                if let number {
-                    Group {
-                        if current { PlayingBars(playing: player.isPlaying) } else { Text("\(number)").foregroundStyle(Theme.muted) }
-                    }.font(.subheadline.monospacedDigit()).frame(width: 22)
-                }
-                Cover(url: track.thumbnail, trackID: track.id, size: 48)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(track.title).font(.body.weight(.medium)).foregroundStyle(current ? Theme.accentLight : Theme.text).lineLimit(1)
-                    HStack(spacing: 5) {
-                        SourceBadge(source: track.source)
-                        OfflineMark(track: track)
-                        Text([track.artist, formatDuration(track.durationSec)].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
+        HStack(spacing: 0) {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    if let number {
+                        Group {
+                            if current { PlayingBars(playing: player.isPlaying) } else { Text("\(number)").foregroundStyle(Theme.muted) }
+                        }.font(.subheadline.monospacedDigit()).frame(width: 22)
                     }
+                    Cover(url: track.thumbnail, trackID: track.id, size: 48)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(track.title).font(.body.weight(.medium)).foregroundStyle(current ? Theme.accentLight : Theme.text).lineLimit(1)
+                        HStack(spacing: 5) {
+                            SourceBadge(source: track.source)
+                            OfflineMark(track: track)
+                            Text([track.artist, formatDuration(track.durationSec)].filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-                Menu { TrackMenu(track: track, playlistID: playlistID) } label: {
-                    Image(systemName: "ellipsis").font(.body.weight(.semibold)).foregroundStyle(Theme.muted)
-                        .frame(width: 36, height: 44).contentShape(Rectangle())
-                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            Menu { TrackMenu(track: track, playlistID: playlistID) } label: {
+                Image(systemName: "ellipsis").font(.body.weight(.semibold)).foregroundStyle(Theme.muted)
+                    .frame(width: 36, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
         .contextMenu { TrackMenu(track: track, playlistID: playlistID) }
     }
 }

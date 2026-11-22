@@ -92,7 +92,8 @@ struct SearchView: View {
         loading = true; error = nil; result = nil; coversLeft = 0
         Task {
             do {
-                let r = fromLink ? try await Engine.resolve(q) : TrackList(title: nil, tracks: try await Engine.search(q, in: source))
+                let r: TrackList
+                if fromLink { r = try await Engine.resolve(q) } else { r = TrackList(title: nil, tracks: try await Engine.search(q, in: source)) }
                 guard my == token else { return }
                 result = r
                 if r.tracks.isEmpty { error = "Nothing found." }

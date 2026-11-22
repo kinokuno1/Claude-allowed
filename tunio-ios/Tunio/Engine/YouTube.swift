@@ -88,16 +88,18 @@ enum YT {
 
     /// A direct link to the song's audio that iOS can play (m4a/AAC), good for a few hours.
     static func audioURL(videoID: String) async throws -> URL {
-        lock.lock()
-        if let (u, at) = cache[videoID], Date().timeIntervalSince(at) < 3 * 3600 { lock.unlock(); return u }
-        lock.unlock()
+        let hit: URL? = lock.withLock {
+            if case let (u, at)? = cache[videoID], Date().timeIntervalSince(at) < 3 * 3600 { return u }
+            return nil
+        }
+        if let hit { return hit }
         let streams = try await YouTube(videoID: videoID, methods: [.local, .remote]).streams
         let audio = streams.filterAudioOnly()
         guard let pick = audio.filter({ $0.isNativelyPlayable }).highestAudioBitrateStream()
                 ?? audio.highestAudioBitrateStream() else {
             throw TunioError("YouTube didn't give an audio stream for this video")
         }
-        lock.lock(); cache[videoID] = (pick.url, Date()); lock.unlock()
+        lock.withLock { cache[videoID] = (pick.url, Date()) }
         return pick.url
     }
 }
