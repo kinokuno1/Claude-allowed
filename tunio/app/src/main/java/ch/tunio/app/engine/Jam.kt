@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import ch.tunio.app.data.Source
+import ch.tunio.app.data.StreamInfo
 import ch.tunio.app.data.Track
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -134,8 +135,10 @@ object Jam {
     fun serverNow(): Double = System.currentTimeMillis() / 1000.0 + offset
 
     /** Where the Jam's current song should be now (seconds). */
-    fun expectedPosition(s: JamState = state.value ?: return 0.0): Double =
-        s.position + if (s.playing) (serverNow() - s.serverTime).coerceAtLeast(0.0) else 0.0
+    fun expectedPosition(st: JamState? = state.value): Double {
+        val s = st ?: return 0.0
+        return s.position + if (s.playing) (serverNow() - s.serverTime).coerceAtLeast(0.0) else 0.0
+    }
 
     // ---------------------------------------------------------------- finding, starting, joining
 
