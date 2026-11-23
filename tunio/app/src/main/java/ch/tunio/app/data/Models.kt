@@ -24,6 +24,8 @@ data class Track(
     val url: String? = null,
     /** Spotify tracks: the YouTube video whose audio is used. Filled in on first play. */
     val matchedUrl: String? = null,
+    /** Its own cover was looked up once already (so a library is only gone through one time). */
+    val artChecked: Boolean = false,
 ) {
     /** What yt-dlp should download, or null if it still has to be matched (Spotify). */
     val downloadTarget: String?

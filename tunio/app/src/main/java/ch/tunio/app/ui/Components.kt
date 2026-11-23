@@ -86,7 +86,7 @@ import kotlinx.coroutines.launch
 // ------------------------------------------------------------------ Building blocks
 
 @Composable
-fun Artwork(url: String?, size: Dp, corner: Dp = 6.dp, modifier: Modifier = Modifier) {
+fun Artwork(url: String?, size: Dp, corner: Dp = 6.dp, modifier: Modifier = Modifier, trackId: String? = null) {
     val shape = RoundedCornerShape(corner)
     Box(
         modifier
@@ -97,7 +97,11 @@ fun Artwork(url: String?, size: Dp, corner: Dp = 6.dp, modifier: Modifier = Modi
     ) {
         Icon(Icons.Rounded.MusicNote, null, tint = Muted, modifier = Modifier.size(size / 2.6f))
         if (url != null) {
-            AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
+            AsyncImage(
+                model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size),
+                // an expired or broken cover: look the song's cover up again
+                onError = { if (trackId != null) Library.coverFailed(trackId) },
+            )
         }
     }
 }
@@ -319,7 +323,7 @@ fun TrackRow(
             }
             Spacer(Modifier.width(12.dp))
         }
-        Artwork(track.thumbnail, 48.dp, 6.dp)
+        Artwork(track.thumbnail, 48.dp, 6.dp, trackId = track.id)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(

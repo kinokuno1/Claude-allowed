@@ -149,7 +149,7 @@ fun MiniPlayer(backdrop: Backdrop) {
             .clickable { Ui.playerOpen.value = true },
     ) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(track.thumbnail, 44.dp, 8.dp)
+            Artwork(track.thumbnail, 44.dp, 8.dp, trackId = track.id)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(track.title, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -230,7 +230,7 @@ fun NowPlayingScreen() {
                             val side = if (maxWidth < maxHeight) maxWidth else maxHeight
                             val s by animateFloatAsState(if (playing || preparing) 1f else 0.88f, spring(dampingRatio = 0.7f, stiffness = 300f), label = "cover")
                             Box(Modifier.size(side).scale(s).clip(RoundedCornerShape(14.dp)).background(Surface30Hi), contentAlignment = Alignment.Center) {
-                                AsyncImage(model = track.thumbnail, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                AsyncImage(model = track.thumbnail, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), onError = { Library.coverFailed(track.id) })
                                 if (preparing) {
                                     Column(
                                         Modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(18.dp),
@@ -543,7 +543,7 @@ private fun QueuePanel(queue: List<Track>, index: Int) {
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { PlayerController.jumpTo(i) }.padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Artwork(t.thumbnail, 44.dp, 6.dp)
+                    Artwork(t.thumbnail, 44.dp, 6.dp, trackId = t.id)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(t.title, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)

@@ -8,6 +8,13 @@ struct LibraryView: View {
 
     var body: some View {
         List {
+            if library.coversLeft > 0 {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Getting song covers… \(library.coversLeft) left").font(.footnote).foregroundStyle(Theme.muted)
+                }
+                .listRowBackground(Color.clear)
+            }
             Section {
                 NavigationLink(value: Route.liked) {
                     row(Cover(size: 56, corner: 6, icon: "heart.fill", gradient: Theme.accentGradient), "Liked songs", "Playlist · \(library.liked.count) songs")

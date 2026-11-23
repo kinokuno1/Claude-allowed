@@ -440,7 +440,8 @@ fun SearchScreen() {
                             Column(Modifier.weight(1f)) {
                                 Text("Imported list", color = Muted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 Text(r.title ?: "Imported list", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text("${r.tracks.size} songs", color = Muted, fontSize = 13.sp)
+                                val coversLeft by SearchModel.coversLeft.collectAsState()
+                                Text("${r.tracks.size} songs" + if (coversLeft > 0) " · getting covers ($coversLeft left)…" else "", color = Muted, fontSize = 13.sp)
                             }
                         }
                         Spacer(Modifier.height(12.dp))
@@ -522,6 +523,14 @@ fun LibraryScreen() {
                 )
             }
             LargeTitle("Your Library")
+            val coversLeft by Library.coversLeft.collectAsState()
+            androidx.compose.animation.AnimatedVisibility(coversLeft > 0) {
+                Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = Muted)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Getting song covers… $coversLeft left", color = Muted, fontSize = 13.sp)
+                }
+            }
         }
         item { LibraryRow("Liked songs", "Playlist · ${lib.liked.size} songs", null, LikedBrush, Icons.Rounded.Favorite) { Ui.push(Route.Liked) } }
         item { LibraryRow("Downloads", "${offline.size} songs on this phone", null, DownloadsBrush, Icons.Rounded.DownloadDone) { Ui.push(Route.Downloads) } }

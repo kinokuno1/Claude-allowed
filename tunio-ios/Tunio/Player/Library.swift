@@ -16,6 +16,8 @@ final class Library: ObservableObject {
     @Published private(set) var liked: [String] = []
     @Published private(set) var playlists: [Playlist] = []
     @Published private(set) var recent: [String] = []
+    /// Songs whose own cover is still being looked up (shown in the Library).
+    @Published private(set) var coversLeft = 0
 
     private let file: URL
     private var saveTask: Task<Void, Never>?
@@ -119,29 +121,36 @@ final class Library: ObservableObject {
     // MARK: covers
 
     private var artBusy = false
+    private var artPending = false
 
-    /// Looks up covers for songs without one, and for Spotify songs that only had their playlist's cover.
+    /// Looks up each song's own cover, once per song: songs without one, and Spotify songs that only had their
+    /// playlist's. Runs at start (so an existing library is gone through one time) and after imports.
     func fillArtwork() {
-        guard !artBusy else { return }
-        let todo = tracks.values.filter { $0.artChecked != true && ($0.thumbnail == nil || $0.source == .spotify) }
-        guard !todo.isEmpty else { return }
+        guard !artBusy else { artPending = true; return }
         artBusy = true
         Task {
-            for chunk in stride(from: 0, to: todo.count, by: 6).map({ Array(todo[$0..<min($0 + 6, todo.count)]) }) {
-                let found: [(String, String?)] = await withTaskGroup(of: (String, String?).self) { g in
-                    for t in chunk { g.addTask { (t.id, await Artwork.lookup(t)) } }
-                    var out: [(String, String?)] = []
-                    for await r in g { out.append(r) }
-                    return out
+            repeat {
+                artPending = false
+                let todo = tracks.values.filter { $0.artChecked != true && ($0.thumbnail == nil || $0.source == .spotify) }
+                coversLeft = todo.count
+                for chunk in stride(from: 0, to: todo.count, by: 6).map({ Array(todo[$0..<min($0 + 6, todo.count)]) }) {
+                    let found: [(String, String?)] = await withTaskGroup(of: (String, String?).self) { g in
+                        for t in chunk { g.addTask { (t.id, await Artwork.lookup(t)) } }
+                        var out: [(String, String?)] = []
+                        for await r in g { out.append(r) }
+                        return out
+                    }
+                    for (id, url) in found {
+                        guard var t = tracks[id] else { continue }
+                        if let url { t.thumbnail = url }
+                        t.artChecked = true
+                        tracks[id] = t
+                    }
+                    save()
+                    coversLeft = max(0, coversLeft - chunk.count)
                 }
-                for (id, url) in found {
-                    guard var t = tracks[id] else { continue }
-                    if let url { t.thumbnail = url }
-                    t.artChecked = true
-                    tracks[id] = t
-                }
-                save()
-            }
+                coversLeft = 0
+            } while artPending
             artBusy = false
         }
     }

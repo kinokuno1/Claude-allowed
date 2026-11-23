@@ -13,6 +13,7 @@ class TunioApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Library.init(this)
+        Library.fillArtwork() // each song's own cover, looked up one time
         AudioStore.init(this)
         SpotifyAccount.init(this)
         AudioStore.onFailure = { PlayerController.messages.tryEmit(it) }
