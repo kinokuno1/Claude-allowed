@@ -148,3 +148,29 @@ enum FlatParser {
                          cover: j["thumbnails"].array.last?["url"].string ?? tracks.first?.thumbnail, sourceUrl: j["webpage_url"].string)
     }
 }
+
+/// Reads the home server's QR code: its pair page "<address>/pair#<password>" (what the installer prints)
+/// or the app link "tunio://pair?u=<address>&k=<password>". Nil for anything else.
+enum Pairing {
+    static func parse(_ text: String) -> (address: String, password: String)? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let c = URLComponents(string: t), let scheme = c.scheme?.lowercased() else { return nil }
+        if scheme == "tunio" {
+            guard c.host?.lowercased() == "pair" else { return nil }
+            var q: [String: String] = [:]
+            for item in c.queryItems ?? [] where q[item.name] == nil { q[item.name] = item.value ?? "" }
+            let u = (q["u"] ?? "").trimmingCharacters(in: .whitespaces)
+            let k = (q["k"] ?? "").trimmingCharacters(in: .whitespaces)
+            return u.isEmpty || k.isEmpty ? nil : (u, k)
+        }
+        guard scheme == "http" || scheme == "https", var host = c.host, !host.isEmpty else { return nil }
+        var path = c.path
+        while path.hasSuffix("/") { path.removeLast() }
+        guard path.hasSuffix("/pair") else { return nil }
+        let password = (c.fragment ?? "").trimmingCharacters(in: .whitespaces)
+        guard !password.isEmpty else { return nil }
+        if host.contains(":") && !host.hasPrefix("[") { host = "[\(host)]" }
+        let port = c.port.map { ":\($0)" } ?? ""
+        return ("\(scheme)://\(host)\(port)\(path.dropLast(5))", password)
+    }
+}

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var address = ""
     @State private var password = ""
     @State private var confirmClear = false
+    @State private var scanning = false
 
     var body: some View {
         Form {
@@ -25,6 +26,7 @@ struct SettingsView: View {
                 SecureField("Password", text: $password)
                 Button("Save and test") { home.configure(address: address, password: password) }
                     .disabled(address.isEmpty || password.isEmpty)
+                Button { scanning = true } label: { Label("Scan its QR code", systemImage: "qrcode.viewfinder") }
                 Button {
                     home.discover()
                 } label: { Label("Find it on my Wi-Fi", systemImage: "wifi") }
@@ -57,6 +59,9 @@ struct SettingsView: View {
         .background(Theme.c60)
         .navigationTitle("Settings")
         .onAppear { address = home.address; password = home.password }
+        .fullScreenCover(isPresented: $scanning) { QRScannerView() }
+        .onChange(of: home.address) { _, a in address = a }
+        .onChange(of: home.password) { _, p in password = p }
         .confirmationDialog("Delete all downloaded songs?", isPresented: $confirmClear, titleVisibility: .visible) {
             Button("Delete all", role: .destructive) { downloads.removeAll() }
         }

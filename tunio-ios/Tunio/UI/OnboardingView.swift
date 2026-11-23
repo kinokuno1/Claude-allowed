@@ -10,6 +10,7 @@ struct OnboardingView: View {
     @State private var connecting = false
     @State private var problem: String?
     @State private var searching = false
+    @State private var scanning = false
 
     enum Step { case welcome, server, password, done }
 
@@ -30,6 +31,7 @@ struct OnboardingView: View {
         }
         .foregroundStyle(Theme.text)
         .animation(.spring(response: 0.45, dampingFraction: 0.88), value: step)
+        .fullScreenCover(isPresented: $scanning) { QRScannerView() }
         // the QR code page (tunio://pair) can finish the setup at any step
         .onChange(of: home.status) { _, s in
             if case .online = s, step != .done, !connecting, home.isSetUp { step = .done }
@@ -86,7 +88,7 @@ struct OnboardingView: View {
                     .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Theme.c30, in: RoundedRectangle(cornerRadius: 14))
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                option("qrcode.viewfinder", "Scan its QR code", "Open the Camera app, point it at the QR code the installer showed, tap the link, then “Open in Tunio”.") {}
+                option("qrcode.viewfinder", "Scan its QR code", "Opens the camera. Point it at the QR code the installer showed, or the one you printed.") { scanning = true }
                 option("keyboard", "Type its address", "For example 192.168.1.20, or its Tailscale address.") { address = ""; problem = nil; step = .password }
             }
             .padding(.top, 26)
