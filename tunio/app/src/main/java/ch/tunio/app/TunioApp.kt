@@ -18,6 +18,7 @@ class TunioApp : Application() {
         AudioStore.onFailure = { PlayerController.messages.tryEmit(it) }
         PlayerController.init(this)
         PyWorker.init(this)
+        ch.tunio.app.engine.WordSync.init(this)
         HomeServer.init(this)
         Engine.start(this)
     }

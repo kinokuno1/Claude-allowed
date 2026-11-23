@@ -183,35 +183,71 @@ struct ProgressBar: View {
 }
 
 /// Synced lyrics: the list glides to the line being sung, which turns white; tap a line to jump there.
+/// "Word" mode lights each word up as it's sung (timing looked up only when Word is picked).
 struct LyricsPanel: View {
     let track: Track
     @ObservedObject private var clock = Clock.shared
+    @ObservedObject private var player = Player.shared
+    @AppStorage("lyrics.mode") private var mode = "line"
     @State private var result: LyricsResult?
     @State private var loading = true
+    @State private var words: WordLyrics?
+    @State private var loadingWords = false
 
     var body: some View {
-        Group {
-            if loading {
-                ProgressView("Looking for lyrics…").frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let r = result, let lines = r.synced {
-                synced(lines)
-            } else if let r = result, let plain = r.plain {
-                ScrollView { Text(plain).font(.title3.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 20) }
-            } else if result?.instrumental == true {
-                message("♪ Instrumental ♪")
-            } else {
-                message("No lyrics found for this song.\nLRCLIB is made by its community, so new or rare songs may be missing.")
+        VStack(spacing: 6) {
+            if !loading {
+                HStack {
+                    if mode == "word", let w = words, let src = w.source {
+                        Text(w.estimated ? "Word timing estimated" : "Word timing: \(src)").font(.caption2).foregroundStyle(Theme.muted)
+                            .transition(.opacity)
+                    }
+                    Spacer()
+                    LyricsModeToggle(mode: $mode)
+                }
             }
+            Group {
+                if loading {
+                    ProgressView("Looking for lyrics…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if mode == "word" && (loadingWords || words == nil) {
+                    WordsLoading()
+                } else if mode == "word", let w = words, !w.lines.isEmpty {
+                    wordView(w.lines)
+                } else if let r = result, let lines = r.synced {
+                    VStack(spacing: 4) {
+                        if mode == "word" { Text("No word-by-word timing for this song.").font(.caption).foregroundStyle(Theme.muted) }
+                        synced(lines)
+                    }
+                } else if let r = result, let plain = r.plain {
+                    ScrollView { Text(plain).font(.title3.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 20) }
+                } else if result?.instrumental == true {
+                    message("♪ Instrumental ♪")
+                } else {
+                    message("No lyrics found for this song.\nLRCLIB is made by its community, so new or rare songs may be missing.")
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: mode)
         }
         .task(id: track.id) {
-            loading = true
+            loading = true; words = nil
             result = await Lyrics.get(track)
             loading = false
+        }
+        .task(id: "\(track.id)|\(mode)|\(loading)") {
+            guard mode == "word", !loading, words == nil else { return }
+            loadingWords = true
+            words = await WordSync.get(track, lines: result)
+            loadingWords = false
         }
     }
 
     private func message(_ s: String) -> some View {
         Text(s).font(.headline).multilineTextAlignment(.center).foregroundStyle(Theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var fade: some View {
+        LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.12),
+                               .init(color: .black, location: 0.8), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
     }
 
     private func synced(_ lines: [LyricLine]) -> some View {
@@ -233,11 +269,123 @@ struct LyricsPanel: View {
                 }
                 .padding(.vertical, 120)
             }
-            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.12),
-                                         .init(color: .black, location: 0.8), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+            .mask(fade)
             .onChange(of: idx) { _, i in withAnimation(.spring(response: 0.7, dampingFraction: 0.9)) { proxy.scrollTo(max(i, 0), anchor: UnitPoint(x: 0.5, y: 0.35)) } }
             .onAppear { proxy.scrollTo(max(idx, 0), anchor: UnitPoint(x: 0.5, y: 0.35)) }
         }
+    }
+
+    /// Word by word: the text stays put, only a white highlight runs through the words as they're sung.
+    private func wordView(_ lines: [WordLine]) -> some View {
+        let idx = lines.lastIndex { $0.start <= clock.time + 0.15 } ?? -1
+        return ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                        Group {
+                            if i == idx {
+                                TimelineView(.animation(paused: !player.isPlaying)) { _ in sung(line, now: player.currentTime) }
+                            } else {
+                                sung(line, now: i < idx ? .infinity : -.infinity)
+                            }
+                        }
+                        .font(.system(size: 26, weight: .heavy))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id(i)
+                        .onTapGesture { Player.shared.seek(to: line.start) }
+                    }
+                }
+                .padding(.vertical, 120)
+            }
+            .mask(fade)
+            .onChange(of: idx) { _, i in withAnimation(.spring(response: 0.7, dampingFraction: 0.9)) { proxy.scrollTo(max(i, 0), anchor: UnitPoint(x: 0.5, y: 0.35)) } }
+            .onAppear { proxy.scrollTo(max(idx, 0), anchor: UnitPoint(x: 0.5, y: 0.35)) }
+        }
+    }
+
+    /// One line as a single Text, each word as bright as how much of it has been sung.
+    private func sung(_ line: WordLine, now: Double) -> Text {
+        line.words.reduce(Text("")) { text, w in
+            let f = w.end > w.start ? min(max((now - w.start) / (w.end - w.start), 0), 1) : (now >= w.start ? 1 : 0)
+            let base = now == .infinity ? 0.55 : 0.35
+            return text + Text(w.text).foregroundColor(Color.white.opacity(now == .infinity ? base : base + (1 - base) * f))
+        }
+    }
+}
+
+/// Line / Word switch: two icons with a pill sliding between them.
+struct LyricsModeToggle: View {
+    @Binding var mode: String
+    @Namespace private var ns
+
+    var body: some View {
+        HStack(spacing: 2) {
+            item("line", "Line by line") { LineIcon() }
+            item("word", "Word by word") { WordIcon() }
+        }
+        .padding(3)
+        .background(Color.white.opacity(0.1), in: Capsule())
+    }
+
+    private func item<I: View>(_ m: String, _ label: String, @ViewBuilder icon: () -> I) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) { mode = m }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } label: {
+            icon()
+                .foregroundStyle(mode == m ? Theme.c60 : Theme.text)
+                .frame(width: 40, height: 30)
+                .background {
+                    if mode == m { Capsule().fill(Color.white).matchedGeometryEffect(id: "pill", in: ns) }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Three bars: whole lines.
+private struct LineIcon: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2.5) {
+            RoundedRectangle(cornerRadius: 1.5).frame(width: 16, height: 3)
+            RoundedRectangle(cornerRadius: 1.5).frame(width: 11, height: 3).opacity(0.55)
+            RoundedRectangle(cornerRadius: 1.5).frame(width: 13.5, height: 3).opacity(0.55)
+        }.frame(width: 18, height: 16)
+    }
+}
+
+/// Three word blocks, the first one underlined.
+private struct WordIcon: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 1.5) {
+                RoundedRectangle(cornerRadius: 1.5).frame(width: 5, height: 5)
+                RoundedRectangle(cornerRadius: 1.5).frame(width: 4.5, height: 5).opacity(0.55)
+                RoundedRectangle(cornerRadius: 1.5).frame(width: 4.5, height: 5).opacity(0.55)
+            }
+            RoundedRectangle(cornerRadius: 0.8).frame(width: 5, height: 1.6)
+        }.frame(width: 18, height: 16)
+    }
+}
+
+/// Three dots bouncing while word timing is looked up.
+private struct WordsLoading: View {
+    @State private var up = false
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 8) {
+                ForEach(0..<3) { i in
+                    Circle().fill(Color.white).frame(width: 10, height: 10)
+                        .offset(y: up ? -8 : 4)
+                        .opacity(up ? 1 : 0.4)
+                        .animation(.easeInOut(duration: 0.45).repeatForever().delay(Double(i) * 0.15), value: up)
+                }
+            }
+            Text("Finding word-by-word timing…").font(.subheadline).foregroundStyle(Theme.muted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { up = true }
     }
 }
 

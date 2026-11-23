@@ -31,6 +31,8 @@ final class Player: ObservableObject {
     var upNext: [Track] { index + 1 < queue.count ? Array(queue[(index + 1)...]) : [] }
 
     private let player = AVPlayer()
+    /// Exact position right now (word-by-word lyrics read it every frame).
+    var currentTime: Double { let t = player.currentTime().seconds; return t.isFinite ? t : 0 }
     private var original: [Track]?
     private var loadTask: Task<Void, Never>?
     private var observers: [NSKeyValueObservation] = []

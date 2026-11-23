@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -91,6 +92,9 @@ import ch.tunio.app.engine.AudioStore
 import ch.tunio.app.engine.HomeServer
 import ch.tunio.app.engine.Lyrics
 import ch.tunio.app.engine.LyricsResult
+import ch.tunio.app.engine.WordLine
+import ch.tunio.app.engine.WordLyrics
+import ch.tunio.app.engine.WordSync
 import ch.tunio.app.player.PlayerController
 import ch.tunio.app.player.RepeatMode
 import coil.compose.AsyncImage
@@ -329,59 +333,199 @@ fun NowPlayingScreen() {
     }
 }
 
-/** Synced lyrics: the list glides to the line being sung, which turns white; tap a line to jump there. */
+/**
+ * Synced lyrics: the list glides to the line being sung, which turns white; tap a line to jump there.
+ * "Word" mode lights each word up as it's sung (the timing is only looked up when Word is picked).
+ */
 @Composable
 private fun LyricsPanel(track: Track, posMs: Long) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { context.getSharedPreferences("ui", 0) }
+    var mode by remember { mutableStateOf(prefs.getString("lyrics_mode", "line") ?: "line") }
     var result by remember(track.id) { mutableStateOf<LyricsResult?>(null) }
     var loading by remember(track.id) { mutableStateOf(true) }
+    var words by remember(track.id) { mutableStateOf<WordLyrics?>(null) }
     LaunchedEffect(track.id) {
         loading = true
         result = Lyrics.get(track)
         loading = false
     }
+    LaunchedEffect(track.id, mode, loading) {
+        if (mode == "word" && !loading && words == null) words = WordSync.get(track, result)
+    }
     val r = result
-    when {
-        loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = TextPrimary)
-                Spacer(Modifier.width(10.dp))
-                Text("Looking for lyrics…", color = Muted)
+    val w = words
+    Column(Modifier.fillMaxSize()) {
+        if (!loading) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.animation.AnimatedVisibility(mode == "word" && w?.source != null, enter = fadeIn(), exit = fadeOut()) {
+                    Text(if (w?.estimated == true) "Word timing estimated" else "Word timing: ${w?.source}", color = Muted, fontSize = 11.sp)
+                }
+                Spacer(Modifier.weight(1f))
+                LyricsModeToggle(mode) {
+                    mode = it
+                    prefs.edit().putString("lyrics_mode", it).apply()
+                }
             }
         }
-        r?.synced != null -> {
-            val lines = r.synced
-            val t = posMs / 1000.0 + 0.25
-            val idx = lines.indexOfLast { it.time <= t }
-            val list = rememberLazyListState()
-            LaunchedEffect(idx) { if (idx >= 0) list.animateScrollToItem(idx, -220) }
-            LazyColumn(state = list, contentPadding = PaddingValues(vertical = 140.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                itemsIndexed(lines) { i, line ->
-                    val color by animateColorAsState(
-                        when {
-                            i == idx -> Color.White
-                            i < idx -> Color.White.copy(alpha = 0.55f)
-                            else -> Color.White.copy(alpha = 0.35f)
-                        }, tween(450), label = "line",
-                    )
-                    val s by animateFloatAsState(if (i == idx) 1.03f else 1f, tween(450), label = "lineScale")
+        Box(Modifier.weight(1f)) {
+            when {
+                loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = TextPrimary)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Looking for lyrics…", color = Muted)
+                    }
+                }
+                mode == "word" && w == null -> WordsLoading()
+                mode == "word" && w != null && w.lines.isNotEmpty() -> WordLyricsList(w.lines, posMs)
+                r?.synced != null -> Column {
+                    if (mode == "word") Text("No word-by-word timing for this song.", color = Muted, fontSize = 12.sp)
+                    LineLyricsList(r.synced, posMs)
+                }
+                r?.plain != null -> LazyColumn(contentPadding = PaddingValues(vertical = 20.dp)) {
+                    item { Text(r.plain, color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, lineHeight = 28.sp) }
+                }
+                r?.instrumental == true -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("♪ Instrumental ♪", color = Muted, fontSize = 18.sp) }
+                else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        line.text.ifBlank { "♪" }, color = color, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp,
-                        modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = s; scaleY = s; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
-                            .clickable { PlayerController.seekTo((line.time * 1000).toLong()) },
+                        "No lyrics found for this song.\nLRCLIB is made by its community, so new or rare songs may be missing.",
+                        color = Muted, fontSize = 15.sp, lineHeight = 21.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                 }
             }
         }
-        r?.plain != null -> LazyColumn(contentPadding = PaddingValues(vertical = 20.dp)) {
-            item { Text(r.plain, color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, lineHeight = 28.sp) }
-        }
-        r?.instrumental == true -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("♪ Instrumental ♪", color = Muted, fontSize = 18.sp) }
-        else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    }
+}
+
+@Composable
+private fun LineLyricsList(lines: List<ch.tunio.app.engine.LyricLine>, posMs: Long) {
+    val t = posMs / 1000.0 + 0.25
+    val idx = lines.indexOfLast { it.time <= t }
+    val list = rememberLazyListState()
+    LaunchedEffect(idx) { if (idx >= 0) list.animateScrollToItem(idx, -220) }
+    LazyColumn(state = list, contentPadding = PaddingValues(vertical = 140.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        itemsIndexed(lines) { i, line ->
+            val color by animateColorAsState(
+                when {
+                    i == idx -> Color.White
+                    i < idx -> Color.White.copy(alpha = 0.55f)
+                    else -> Color.White.copy(alpha = 0.35f)
+                }, tween(450), label = "line",
+            )
+            val s by animateFloatAsState(if (i == idx) 1.03f else 1f, tween(450), label = "lineScale")
             Text(
-                "No lyrics found for this song.\nLRCLIB is made by its community, so new or rare songs may be missing.",
-                color = Muted, fontSize = 15.sp, lineHeight = 21.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                line.text.ifBlank { "♪" }, color = color, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp,
+                modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = s; scaleY = s; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
+                    .clickable { PlayerController.seekTo((line.time * 1000).toLong()) },
             )
         }
+    }
+}
+
+/** Word by word: the text stays put, only a white highlight runs through the words as they're sung. */
+@Composable
+private fun WordLyricsList(lines: List<WordLine>, posMs: Long) {
+    val idx = lines.indexOfLast { it.start <= posMs / 1000.0 + 0.15 }
+    val list = rememberLazyListState()
+    LaunchedEffect(idx) { if (idx >= 0) list.animateScrollToItem(idx, -220) }
+    LazyColumn(state = list, contentPadding = PaddingValues(vertical = 140.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        itemsIndexed(lines) { i, line ->
+            val mod = Modifier.fillMaxWidth().clickable { PlayerController.seekTo((line.start * 1000).toLong()) }
+            when {
+                i == idx -> CurrentWordLine(line, mod)
+                else -> Text(sungText(line, if (i < idx) Double.POSITIVE_INFINITY else Double.NEGATIVE_INFINITY), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp, modifier = mod)
+            }
+        }
+    }
+}
+
+/** The line being sung, redrawn every frame from the player's exact position. */
+@Composable
+private fun CurrentWordLine(line: WordLine, modifier: Modifier) {
+    var now by remember { mutableStateOf(PlayerController.exo.currentPosition / 1000.0) }
+    LaunchedEffect(line) {
+        while (true) {
+            androidx.compose.runtime.withFrameNanos { }
+            now = PlayerController.exo.currentPosition / 1000.0
+        }
+    }
+    Text(sungText(line, now), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp, modifier = modifier)
+}
+
+/** Each word as bright as how much of it has been sung (past lines dimmed, upcoming ones darker). */
+private fun sungText(line: WordLine, now: Double) = androidx.compose.ui.text.buildAnnotatedString {
+    for (w in line.words) {
+        val alpha = when (now) {
+            Double.POSITIVE_INFINITY -> 0.55f
+            Double.NEGATIVE_INFINITY -> 0.35f
+            else -> {
+                val f = if (w.end > w.start) ((now - w.start) / (w.end - w.start)).coerceIn(0.0, 1.0) else if (now >= w.start) 1.0 else 0.0
+                0.35f + 0.65f * f.toFloat()
+            }
+        }
+        withStyle(androidx.compose.ui.text.SpanStyle(color = Color.White.copy(alpha = alpha))) { append(w.text) }
+    }
+}
+
+/** Line / Word switch: two icons with a white pill sliding between them. */
+@Composable
+private fun LyricsModeToggle(mode: String, onChange: (String) -> Unit) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val pill by animateFloatAsState(if (mode == "word") 1f else 0f, spring(dampingRatio = 0.62f, stiffness = 500f), label = "pill")
+    Box(Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).padding(3.dp)) {
+        Box(
+            Modifier.graphicsLayer { translationX = pill * 42.dp.toPx() }
+                .size(width = 40.dp, height = 30.dp).clip(CircleShape).background(Color.White),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            for (m in listOf("line", "word")) {
+                val on = mode == m
+                val tint by animateColorAsState(if (on) Bg else TextPrimary, tween(200), label = "tint")
+                Box(
+                    Modifier.size(width = 40.dp, height = 30.dp).clip(CircleShape)
+                        .clickable {
+                            if (!on) {
+                                view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                                onChange(m)
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.foundation.Canvas(Modifier.size(18.dp, 16.dp)) {
+                        val u = size.width / 18f
+                        fun bar(x: Float, y: Float, w: Float, h: Float, a: Float) =
+                            drawRoundRect(tint.copy(alpha = a), androidx.compose.ui.geometry.Offset(x * u, y * u), androidx.compose.ui.geometry.Size(w * u, h * u), androidx.compose.ui.geometry.CornerRadius(1.5f * u))
+                        if (m == "line") {
+                            bar(1f, 1.5f, 16f, 3f, 1f); bar(1f, 6.5f, 11f, 3f, 0.55f); bar(1f, 11.5f, 13.5f, 3f, 0.55f)
+                        } else {
+                            bar(1f, 4f, 5f, 5f, 1f); bar(7.5f, 4f, 4.5f, 5f, 0.55f); bar(13.5f, 4f, 4.5f, 5f, 0.55f); bar(1f, 11f, 5f, 1.6f, 1f)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Three dots bouncing while the word timing is looked up. */
+@Composable
+private fun WordsLoading() {
+    val t = rememberInfiniteTransition(label = "dots")
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (i in 0 until 3) {
+                val y by t.animateFloat(
+                    0f, 1f,
+                    infiniteRepeatable(tween(450, delayMillis = 0, easing = androidx.compose.animation.core.FastOutSlowInEasing), AnimRepeat.Reverse,
+                        androidx.compose.animation.core.StartOffset(i * 150)),
+                    label = "dot$i",
+                )
+                Box(Modifier.graphicsLayer { translationY = (4f - 12f * y) * density; alpha = 0.4f + 0.6f * y }.size(10.dp).clip(CircleShape).background(Color.White))
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Finding word-by-word timing…", color = Muted, fontSize = 14.sp)
     }
 }
 
