@@ -34,7 +34,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.SkipNext
@@ -86,14 +86,13 @@ import kotlinx.coroutines.launch
 // ------------------------------------------------------------------ Building blocks
 
 @Composable
-fun Artwork(url: String?, size: Dp, corner: Dp = 10.dp, modifier: Modifier = Modifier) {
+fun Artwork(url: String?, size: Dp, corner: Dp = 6.dp, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(corner)
     Box(
         modifier
             .size(size)
             .clip(shape)
-            .background(Brush.linearGradient(listOf(Color(0xFF2A2440), Color(0xFF1A1A24))))
-            .border(1.dp, Glass.rim, shape),
+            .background(Surface30Hi),
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Rounded.MusicNote, null, tint = Muted, modifier = Modifier.size(size / 2.6f))
@@ -108,7 +107,7 @@ fun Artwork(url: String?, size: Dp, corner: Dp = 10.dp, modifier: Modifier = Mod
 fun GradientTile(icon: ImageVector, brush: Brush, size: Dp, corner: Dp = 12.dp) {
     val shape = RoundedCornerShape(corner)
     Box(
-        Modifier.size(size).clip(shape).background(brush).background(Glass.sheen).border(1.dp, Glass.rim, shape),
+        Modifier.size(size).clip(shape).background(brush),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(size * 0.42f)) }
 }
@@ -139,7 +138,7 @@ fun GlassIconButton(
     }
 }
 
-/** Primary action: accent gradient pill with white text. */
+/** Primary action: white pill with dark text. */
 @Composable
 fun AccentButton(text: String, onClick: () -> Unit, icon: ImageVector? = null, enabled: Boolean = true, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(50)
@@ -147,14 +146,13 @@ fun AccentButton(text: String, onClick: () -> Unit, icon: ImageVector? = null, e
         modifier
             .heightIn(min = 46.dp)
             .clip(shape)
-            .then(if (enabled) Modifier.background(AccentGradient).background(Glass.sheen) else Modifier.background(Glass.fill))
-            .border(1.dp, Glass.rim, shape)
+            .then(if (enabled) Modifier.background(Color.White) else Modifier.background(Glass.fill))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        val color = if (enabled) Color.White else Muted
+        val color = if (enabled) Bg else Muted
         if (icon != null) {
             Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
@@ -302,33 +300,38 @@ fun TrackRow(
     track: Track,
     onClick: () -> Unit,
     playlistId: String? = null,
+    number: Int? = null,
 ) {
     val queue by PlayerController.queue.collectAsState()
     val index by PlayerController.index.collectAsState()
+    val playing by PlayerController.isPlaying.collectAsState()
     val isCurrent = queue.getOrNull(index)?.id == track.id
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .then(if (isCurrent) Modifier.glass(RoundedCornerShape(18.dp)) else Modifier)
             .clickable(onClick = onClick)
-            .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 0.dp),
+            .padding(start = 16.dp, top = 7.dp, bottom = 7.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Artwork(track.thumbnail, 52.dp, 12.dp)
-        Spacer(Modifier.width(14.dp))
+        if (number != null) {
+            Box(Modifier.width(22.dp), contentAlignment = Alignment.Center) {
+                if (isCurrent) PlayingBars(playing) else Text("$number", color = Muted, fontSize = 14.sp)
+            }
+            Spacer(Modifier.width(12.dp))
+        }
+        Artwork(track.thumbnail, 48.dp, 6.dp)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 track.title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = if (isCurrent) AccentLight else TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
             )
             Spacer(Modifier.height(3.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 SourceBadge(track.source)
                 OfflineIndicator(track, 13.dp)
                 Text(
@@ -355,7 +358,7 @@ fun TrackMenu(track: Track, playlistId: String? = null, tint: Color = Muted) {
         Box(
             Modifier.size(44.dp).clip(CircleShape).clickable { open = true },
             contentAlignment = Alignment.Center,
-        ) { Icon(Icons.Rounded.MoreVert, "More", tint = tint) }
+        ) { Icon(Icons.Rounded.MoreHoriz, "More", tint = tint) }
         DropdownMenu(
             expanded = open,
             onDismissRequest = { open = false },
@@ -393,7 +396,7 @@ private fun MenuItem(text: String, icon: ImageVector, onClick: () -> Unit) {
         text = { Text(text) },
         leadingIcon = { Icon(icon, null) },
         onClick = onClick,
-        colors = MenuDefaults.itemColors(textColor = TextPrimary, leadingIconColor = AccentLight),
+        colors = MenuDefaults.itemColors(textColor = TextPrimary, leadingIconColor = TextPrimary),
         contentPadding = PaddingValues(horizontal = 16.dp),
     )
 }

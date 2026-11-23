@@ -67,6 +67,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -189,6 +195,8 @@ private fun App() {
     val playerOpen by Ui.playerOpen.collectAsState()
     val queue by PlayerController.queue.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    var onboarded by remember { mutableStateOf(Onboarding.done(context)) }
     // Two light sources for the glass: the background light (for glass inside screens) and the whole
     // screen incl. scrolling content (for the floating bars, so you see content bend as it passes under).
     val screenBackdrop = rememberLayerBackdrop()
@@ -200,7 +208,7 @@ private fun App() {
     LaunchedEffect(Unit) {
         PlayerController.messages.collect { snackbar.showSnackbar(it) }
     }
-    BackHandler(enabled = playerOpen || stack.size > 1 || route != Route.Home) { Ui.back() }
+    BackHandler(enabled = onboarded && (playerOpen || stack.size > 1 || route != Route.Home)) { Ui.back() }
 
     // Height of the floating bars, so screens can scroll their last items out from under them.
     val chromeHeight = 64.dp + 16.dp + (if (hasPlayer) 68.dp else 0.dp)
@@ -230,7 +238,7 @@ private fun App() {
                         Route.Library -> LibraryScreen()
                         Route.Settings -> SettingsScreen()
                         Route.SpotifyImport -> SpotifyImportScreen()
-                        Route.Liked, Route.Downloads, is Route.PlaylistPage -> CollectionScreen(r)
+                        Route.Liked, Route.Downloads, Route.Recent, is Route.PlaylistPage -> CollectionScreen(r)
                     }
                 }
             }
@@ -243,6 +251,7 @@ private fun App() {
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             SnackbarHost(snackbar) { data ->
                 Snackbar(
@@ -267,6 +276,14 @@ private fun App() {
             NowPlayingScreen()
         }
         AddToPlaylistDialog()
+
+        // First launch: welcome + home server setup, over everything.
+        AnimatedVisibility(visible = !onboarded, enter = fadeIn(), exit = fadeOut()) {
+            OnboardingScreen {
+                Onboarding.finish(context)
+                onboarded = true
+            }
+        }
     }
 }
 
@@ -281,6 +298,7 @@ private fun GlassTabBar(backdrop: Backdrop, selected: Route) {
     val index = tabs.indexOfFirst { it.route == selected }.coerceAtLeast(0)
     BoxWithConstraints(
         Modifier
+            .widthIn(max = 300.dp)
             .fillMaxWidth()
             .height(64.dp)
             .chromeGlass(backdrop, shape),
@@ -328,9 +346,7 @@ private fun GlassTabBar(backdrop: Backdrop, selected: Route) {
                 }
                 .padding(6.dp)
                 .clip(RoundedCornerShape(26.dp))
-                .background(Color.White.copy(alpha = 0.10f))
-                .background(Glass.sheen)
-                .border(1.dp, Glass.rim, RoundedCornerShape(26.dp)),
+                .background(Color.White.copy(alpha = 0.12f)),
         )
         Row(Modifier.fillMaxSize()) {
             tabs.forEachIndexed { i, t ->
@@ -382,15 +398,12 @@ private fun TabItem(tab: Tab, active: Boolean, modifier: Modifier) {
                         scaleX = 1f + (1f - flash.value) * 0.5f
                         scaleY = scaleX
                     }
-                    .background(
-                        Brush.radialGradient(listOf(AccentLight.copy(alpha = 0.55f), Color.Transparent)),
-                        CircleShape,
-                    ),
+                    .background(Color.White.copy(alpha = 0.18f), CircleShape),
             )
             Icon(
                 if (active) tab.selectedIcon else tab.icon,
                 tab.label,
-                tint = if (active) TextPrimary else Muted,
+                tint = if (active) AccentLight else Muted,
                 modifier = Modifier
                     .size(24.dp)
                     .graphicsLayer {
@@ -402,7 +415,7 @@ private fun TabItem(tab: Tab, active: Boolean, modifier: Modifier) {
         }
         Text(
             tab.label,
-            color = if (active) TextPrimary else Muted,
+            color = if (active) AccentLight else Muted,
             fontSize = 11.sp,
             fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
         )

@@ -25,6 +25,7 @@ sealed interface Route {
     data object Library : Route
     data object Liked : Route
     data object Downloads : Route
+    data object Recent : Route
     data object Settings : Route
     data object SpotifyImport : Route
     data class PlaylistPage(val id: String) : Route

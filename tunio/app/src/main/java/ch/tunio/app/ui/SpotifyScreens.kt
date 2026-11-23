@@ -228,7 +228,7 @@ private fun ImportRow(title: String, subtitle: String, image: String?, liked: Bo
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (liked) GradientTile(Icons.Rounded.Favorite, Brush.linearGradient(listOf(AccentDeep, Accent2Deep)), 56.dp, 14.dp)
+        if (liked) GradientTile(Icons.Rounded.Favorite, LikedBrush, 56.dp, 14.dp)
         else Artwork(image, 56.dp, 14.dp)
         Spacer(Modifier.width(14.dp))
         Column {

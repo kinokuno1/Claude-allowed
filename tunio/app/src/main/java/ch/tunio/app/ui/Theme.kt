@@ -58,7 +58,13 @@ val Muted = Color(0xFFC8C8D2)
 val Good = Color(0xFF6EE7B7)
 val ErrorText = Color(0xFFFECACA)
 
-val AccentGradient = Brush.linearGradient(listOf(AccentDeep, Accent2Deep))
+/** Flat colours (no gradients), same as the iPhone and Windows apps. Primary actions are white with dark text. */
+val LikedColor = Color(0xFF5B45B8)
+val DownloadsColor = Color(0xFF0F6E5C)
+val GlowColor = Color(0xFF3A3350)
+val Surface30 = Color(0xFF1A1823)
+val Surface30Hi = Color(0xFF252231)
+val AccentGradient: Brush = androidx.compose.ui.graphics.SolidColor(Color.White)
 
 fun sourceColor(s: Source): Color = when (s) {
     Source.YOUTUBE -> Color(0xFFFF5A52)
@@ -146,12 +152,8 @@ fun Modifier.chromeGlass(backdrop: Backdrop, shape: RoundedCornerShape): Modifie
             .border(1.dp, Glass.rim, shape)
     }
 
-/** Menus (Home, Search, Library, Settings): a plain diagonal colour gradient, no blur and no spots. */
-val MenuGradient = Brush.linearGradient(
-    0f to Color(0xFF33255A), // Accent at 30 % over Bg
-    0.55f to Bg,
-    1f to Color(0xFF3A1A2D), // Accent2 at 20 % over Bg
-)
+/** Menus (Home, Search, Library, Settings): near-black with a soft neutral glow at the top. */
+val MenuGradient = Brush.verticalGradient(0f to GlowColor.copy(alpha = 0.6f), 0.35f to Bg, 1f to Bg)
 
 @Composable
 fun GradientBackground(modifier: Modifier = Modifier) {
