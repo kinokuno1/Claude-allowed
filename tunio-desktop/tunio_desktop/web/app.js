@@ -661,7 +661,7 @@ const Lyrics = (() => {
     const sc = $("#lyscroll");
     if (el && sc && Date.now() - userScrollAt > 3000) glide(sc, el.offsetTop - sc.clientHeight * 0.36 + el.offsetHeight / 2);
   }
-  /** Word mode: the text stays put; white fills each word as it's sung (the word being sung glows). */
+  /** Word mode: the text stays put; white fills each word as it's sung, and a line slides under the word being sung. */
   let wordIdx = -2;
   function paintWords(wl, time) {
     const box = $("#lylines.words"); if (!box) return;
@@ -676,12 +676,28 @@ const Lyrics = (() => {
     const line = wl[idx], el = box.children[idx];
     if (!line || !el) return;
     const spans = el.querySelectorAll(".w");
+    let at = -1;
     line.words.forEach(([s0, s1], k) => {
       const p = Math.max(0, Math.min(1, (time - s0) / Math.max(0.05, s1 - s0)));
       const sp = spans[k]; if (!sp) return;
       if (Math.abs((+sp.dataset.p || 0) - p) > 0.01) { sp.dataset.p = p; sp.style.setProperty("--p", p.toFixed(3)); }
-      sp.classList.toggle("now", p > 0 && p < 1);
+      if (time >= s0 - 0.05) at = k;
     });
+    underline(box, spans[at]);
+  }
+  /** The line under the word being sung: it slides to each next word (CSS does the gliding). */
+  let ulFor = null;
+  function underline(box, sp) {
+    let ul = box.querySelector(".uline");
+    if (!ul) { ul = document.createElement("i"); ul.className = "uline"; box.append(ul); ulFor = null; }
+    if (!sp) { ul.classList.remove("on"); ulFor = null; return; }
+    if (sp === ulFor) return;
+    ulFor = sp;
+    const txt = sp.textContent, word = txt.trimEnd().length || txt.length; // don't underline the space after it
+    const w = sp.offsetWidth * word / Math.max(1, txt.length);
+    ul.style.transform = `translate(${sp.offsetLeft + 2}px, ${sp.offsetTop + sp.offsetHeight - 4}px)`;
+    ul.style.width = `${Math.max(8, w - 4)}px`;
+    ul.classList.add("on");
   }
   /** Smooth, slow scroll (the browser's own "smooth" is short and abrupt). */
   let glideRaf = 0;
@@ -702,10 +718,11 @@ const Lyrics = (() => {
   return { get, words, wantWords, prefetch, wake, indexAt, paint: () => { shownIdx = -2; wordIdx = -2; wake(true); } };
 })();
 
-/** Beats, for the 3D lyrics: the bass is watched for sudden hits (Web Audio). Only switched on with 3D mode
- *  (a click), and only if the browser lets the audio graph run, so the music never goes silent. */
+/** Tempo, for the 3D lyrics: the bass is watched for hits (Web Audio) to learn the song's BPM, so words pop in
+ *  softly on slow songs and hard on fast ones. Only switched on with 3D mode (a click), and only if the browser
+ *  lets the audio graph run, so the music never goes silent. */
 const Beat = (() => {
-  let ctx = null, an = null, gain = null, data = null, avg = 0, last = 0, kick = 0;
+  let ctx = null, an = null, gain = null, data = null, avg = 0, last = 0, hits = [];
   async function enable() {
     if (ctx) { if (ctx.state !== "running") await ctx.resume().catch(() => {}); return true; }
     try {
@@ -719,73 +736,85 @@ const Beat = (() => {
       data = new Uint8Array(an.frequencyBinCount);
       ctx = c; Volume.apply();
       return true;
-    } catch (e) { console.warn("beats off:", e); return false; }
+    } catch (e) { console.warn("tempo off:", e); return false; }
   }
-  /** 0…1, jumps to 1 on a beat and fades. */
+  /** Called every frame: notes the bass hits. */
   function sample(now) {
-    if (!an || audio.paused) { kick *= 0.9; return kick; }
+    if (!an || audio.paused) return;
     an.getByteFrequencyData(data);
     let bass = 0; for (let i = 1; i < 9; i++) bass += data[i]; bass /= 8; // ~40-380 Hz
     avg = avg ? avg * 0.94 + bass * 0.06 : bass;
-    if (bass > avg * 1.25 && bass > 110 && now - last > 210) { last = now; kick = 1; }
-    else kick *= 0.88;
-    return kick;
+    if (bass > avg * 1.22 && bass > 100 && now - last > 250) { last = now; hits.push(now); if (hits.length > 40) hits.shift(); }
   }
+  /** Beats per minute (the usual gap between hits), or 0 while it's still listening. */
+  function bpm() {
+    if (hits.length < 8) return 0;
+    const gaps = hits.slice(1).map((t, i) => t - hits[i]).filter((g) => g > 250 && g < 1600).sort((a, b) => a - b);
+    if (gaps.length < 6) return 0;
+    let b = 60000 / gaps[gaps.length >> 1];
+    while (b < 75) b *= 2;
+    while (b > 175) b /= 2;
+    return Math.round(b);
+  }
+  /** How hard words pop in: "soft" (slow songs), "mid" or "hard" (fast songs). */
+  function energy() { const b = bpm(); return !b ? "mid" : b < 96 ? "soft" : b > 132 ? "hard" : "mid"; }
   audio.addEventListener("play", () => { if (ctx && ctx.state !== "running") ctx.resume().catch(() => {}); });
-  return { enable, sample, get gain() { return gain; }, get on() { return !!an; } };
+  audio.addEventListener("emptied", () => { hits = []; avg = 0; }); // a new song: listen again
+  return { enable, sample, bpm, energy, get gain() { return gain; }, get on() { return !!an; } };
 })();
 
-/** The 3D lyrics stage: each line hangs somewhere along a winding path in space, the camera flies from word to
- *  word, words pop up as they're sung, and every beat gives the camera a kick (like a music video edit). */
+/** The 3D lyrics stage: the lines hang one behind the other, straight ahead. The camera keeps flying forward
+ *  (it never turns): it drifts toward the line being sung, then flies through it to the next one, while the
+ *  words pop in as they're sung, softer or harder with the song's tempo. */
 const Stage = (() => {
-  let cam = { x: 0, y: 0, z: 0, ry: 0, rx: 0, rz: 0 }, built = new Map(), lineIdx = -2, kickSign = 1, velo = 1;
-  const place = (i) => ({ x: Math.sin(i * 1.7) * 320 + i * 40, y: Math.cos(i * 1.1) * 120 - i * 30, z: -i * 520, ry: Math.sin(i * 0.9) * 32, rx: Math.cos(i * 1.3) * 10 });
-  function reset() { built.forEach((el) => el.remove()); built.clear(); lineIdx = -2; }
+  const GAP = 760, VIEW = 560;
+  let camZ = null, built = new Map(), lineIdx = -2, velo = 1;
+  const place = (i) => -i * GAP;
+  function reset() { built.forEach((el) => el.remove()); built.clear(); lineIdx = -2; camZ = null; }
   function line(wl, i) {
     if (built.has(i) || !wl[i]) return built.get(i);
-    const p = place(i), el = document.createElement("div");
+    const el = document.createElement("div");
     el.className = "l3";
-    el.style.transform = `translate3d(${p.x}px, ${p.y}px, ${p.z}px) rotateY(${p.ry}deg) rotateX(${p.rx}deg)`;
+    el.style.transform = `translate3d(0px, 0px, ${place(i)}px)`;
     el.innerHTML = wl[i].words.map(([, , w]) => `<span class="w3">${esc(w.trim()) || "♪"}</span>`).join(" ");
     $("#world").append(el); built.set(i, el);
     return el;
   }
   function frame(wl, time, dt) {
+    Beat.sample(performance.now());
     const idx = Math.max(0, Lyrics.indexAt(wl, time, (l) => l.t));
     if (idx !== lineIdx) {
-      for (const [i, el] of built) if (i < idx - 2 || i > idx + 1) { el.remove(); built.delete(i); }
+      for (const [i, el] of built) if (i < idx - 1 || i > idx + 1) { el.remove(); built.delete(i); }
       built.forEach((el, i) => { el.classList.toggle("gone", i < idx); el.classList.toggle("cur", i === idx); });
-      lineIdx = idx; kickSign = -kickSign;
+      lineIdx = idx;
+      $("#ly3d").dataset.energy = Beat.energy();
     }
     const el = line(wl, idx); line(wl, idx + 1);
     if (!el) return;
-    // words pop as they're sung; the camera aims at the newest one
-    const spans = el.querySelectorAll(".w3"); let aim = spans[0];
-    wl[idx].words.forEach(([s0, s1], k) => {
+    // words pop in as they're sung (the next line stays invisible until its words come)
+    const spans = el.querySelectorAll(".w3");
+    wl[idx].words.forEach(([s0], k) => {
       const sp = spans[k]; if (!sp) return;
       const on = time >= s0 - 0.04;
       if (on && !sp.classList.contains("pop")) sp.classList.add("pop");
       if (!on && sp.classList.contains("pop") && time < s0 - 0.3) sp.classList.remove("pop");
-      sp.classList.toggle("now", time >= s0 && time < s1);
-      if (on) aim = sp;
     });
-    const p = place(idx);
-    const wx = aim ? aim.offsetLeft + aim.offsetWidth / 2 - el.offsetWidth / 2 : 0;
-    const k = Beat.sample(performance.now());
-    const target = { x: p.x + wx * Math.cos(p.ry * Math.PI / 180), y: p.y, z: p.z - wx * Math.sin(p.ry * Math.PI / 180), ry: p.ry, rx: p.rx, rz: kickSign * k * 2.2 };
-    const a = 1 - Math.exp(-dt * 5);
-    for (const key of ["x", "y", "z", "ry", "rx"]) cam[key] += (target[key] - cam[key]) * a;
-    cam.rz += (target.rz - cam.rz) * Math.min(1, a * 3);
-    velo = Math.abs(target.x - cam.x) + Math.abs(target.z - cam.z);
-    const zoom = 120 + k * 60;
-    $("#cam").style.transform = `translateZ(${zoom}px) rotateZ(${cam.rz}deg) rotateX(${-cam.rx}deg) rotateY(${-cam.ry}deg) translate3d(${-cam.x}px, ${-cam.y}px, ${-cam.z}px)`;
-    $("#ly3d").style.setProperty("--kick", k.toFixed(3));
+    // always forward: a slow drift along the line, then through it to the next one
+    const L = wl[idx], end = L.e || wl[idx + 1]?.t || L.t + 4;
+    const prog = Math.max(0, Math.min(1, (time - L.t) / Math.max(1, end - L.t)));
+    const target = place(idx) + VIEW - prog * 200;
+    if (camZ === null || target > camZ + GAP) camZ = target + 120; // first frame / seeked back: start just behind
+    const a = 1 - Math.exp(-dt * 4);
+    camZ += Math.min(0, (target - camZ) * a); // never backwards
+    velo = Math.abs(target - camZ);
+    $("#cam").style.transform = `translate3d(0px, 0px, ${-camZ}px)`;
   }
   return { frame, reset, moving: () => velo > 2 };
 })();
 
 // ------------------------------------------------------------------ player
 const Player = (() => {
+  let smart = false, smartPool = [], smartBusy = false, nextGap = 3 + Math.floor(Math.random() * 3);
   let queue = [], index = -1, original = null, shuffle = false, repeat = "off", preparing = false, loadToken = 0, autoplayBusy = false, failures = 0, context = null;
   const current = () => queue[index] || null;
   async function load(i, autoplayCheck = true) {
@@ -818,6 +847,7 @@ const Player = (() => {
         if (fresh.length) { queue.push(...fresh); toast(`Autoplay: added ${fresh.length} similar songs`); updateUi(); }
       } catch { /* no autoplay this time */ } finally { autoplayBusy = false; }
     }
+    if (smart) await fillSmart();
     const next = queue[index + 1]; // warm up the next song so it starts instantly
     if (next) { api("prepare", { track: next, prefetch: true }).catch(() => {}); Lyrics.prefetch(next); }
   }
@@ -864,11 +894,46 @@ const Player = (() => {
   audio.addEventListener("play", () => { userPaused = false; });
   function prev() { if (audio.currentTime > 3 || index <= 0) audio.currentTime = 0; else load(index - 1); }
   function toggle() { if (!current() || preparing) return; if (!audio.src) return load(index); audio.paused ? audio.play() : audio.pause(); }
+  /** Shuffle button: off → shuffle → smart shuffle (a recommended song every 3 to 5 songs) → off. */
   function toggleShuffle() {
-    shuffle = !shuffle; const cur = current(); if (!cur) return updateUi();
-    if (shuffle) { original = queue.slice(); queue = [...queue.slice(0, index + 1), ...queue.slice(index + 1).sort(() => Math.random() - .5)]; }
-    else if (original) { queue = original; index = Math.max(0, queue.findIndex((t) => t.id === cur.id)); }
+    const cur = current();
+    if (!shuffle) {
+      shuffle = true;
+      if (cur) { original = queue.slice(); queue = [...queue.slice(0, index + 1), ...queue.slice(index + 1).sort(() => Math.random() - .5)]; }
+    } else if (!smart) {
+      smart = true; toast("Smart shuffle: a song you might like every few songs");
+      fillSmart();
+    } else {
+      smart = false; shuffle = false;
+      queue = queue.filter((t, i) => i <= index || !t.smart); // the recommendations still to come go away
+      if (original && cur) { queue = original; index = Math.max(0, queue.findIndex((t) => t.id === cur.id)); }
+    }
     updateUi();
+  }
+  /** Smart shuffle: puts a recommended song (similar to what's playing) after every 3 to 5 songs coming up. */
+  async function fillSmart() {
+    if (!smart || !current()) return;
+    let gap = 0;
+    for (let i = index; i >= 0 && !queue[i].smart; i--) gap++;
+    const at = [];
+    for (let i = index + 1; i < queue.length && i <= index + 12; i++) {
+      if (queue[i].smart) { gap = 0; continue; }
+      if (++gap >= nextGap) { at.push(i + 1); gap = 0; nextGap = 3 + Math.floor(Math.random() * 3); }
+    }
+    if (!at.length) return;
+    if (smartPool.length < at.length) await refillSmart();
+    for (const pos of at.reverse()) { const r = smartPool.shift(); if (!r) break; queue.splice(pos, 0, { ...r, smart: true }); }
+    updateUi();
+  }
+  async function refillSmart() {
+    if (smartBusy) return;
+    smartBusy = true;
+    try {
+      const mine = queue.filter((t) => !t.smart), seed = mine[Math.floor(Math.random() * mine.length)] || current();
+      const { tracks } = await api("similar", { track: seed, exclude: [...queue, ...tracksOf(S.lib.recent.slice(0, 30))] });
+      const fresh = tracks.filter((x) => !queue.some((q) => q.id === x.id) && !smartPool.some((q) => q.id === x.id));
+      smartPool.push(...fresh.sort(() => Math.random() - .5));
+    } catch { /* no recommendations this time */ } finally { smartBusy = false; }
   }
   function cycleRepeat() { repeat = repeat === "off" ? "all" : repeat === "all" ? "one" : "off"; updateUi(); }
   function playNext(t) { if (!current()) return play([t]); queue.splice(index + 1, 0, t); toast(`Plays next: ${t.title}`); updateUi(); }
@@ -892,7 +957,7 @@ const Player = (() => {
     navigator.mediaSession.setActionHandler("seekto", (d) => { audio.currentTime = d.seekTime; });
   }
   return { play, next, prev, toggle, toggleShuffle, cycleRepeat, playNext, addToQueue, remove, jump, current,
-    get queue() { return queue; }, get index() { return index; }, get shuffle() { return shuffle; }, get repeat() { return repeat; },
+    get queue() { return queue; }, get index() { return index; }, get shuffle() { return shuffle; }, get smart() { return smart; }, get repeat() { return repeat; },
     get preparing() { return preparing; }, get context() { return context; } };
 })();
 
@@ -900,7 +965,7 @@ let uiKey = "";
 function updateUi() {
   updateBar(); renderNp();
   // Play/pause state shows in many places (rows, cards, sidebar): re-render the page only when it changed.
-  const key = JSON.stringify([Player.current()?.id, audio.paused, Player.preparing, Player.context, Player.shuffle]);
+  const key = JSON.stringify([Player.current()?.id, audio.paused, Player.preparing, Player.context, Player.shuffle, Player.smart]);
   if (key !== uiKey) { uiKey = key; render(false); }
 }
 
@@ -955,7 +1020,8 @@ function updateBar() {
   if (Player.preparing) { if (!pp.querySelector(".spinner")) pp.innerHTML = `<span class="spinner" style="border-top-color:var(--c10)"></span>`; }
   else { if (pp.querySelector(".spinner")) pp.innerHTML = ""; setPP(pp, playing, "bar"); }
   pp.title = playing ? "Pause" : "Play";
-  $("#bshuf").classList.toggle("on", Player.shuffle); $("#bshuf").title = Player.shuffle ? "Disable shuffle" : "Enable shuffle";
+  $("#bshuf").classList.toggle("on", Player.shuffle); $("#bshuf").classList.toggle("smart", Player.smart);
+  $("#bshuf").title = Player.smart ? "Turn shuffle off" : Player.shuffle ? "Smart shuffle (adds songs you might like)" : "Enable shuffle";
   $("#brep").classList.toggle("on", Player.repeat !== "off"); $("#brep").innerHTML = icon(Player.repeat === "one" ? "repeat_one" : "repeat");
   $("#brep").title = Player.repeat === "off" ? "Enable repeat" : Player.repeat === "all" ? "Enable repeat one" : "Disable repeat";
   const off = t && S.offline.has(t.id), p = t ? S.progress[t.id] : undefined;
@@ -966,7 +1032,7 @@ function updateBar() {
   $("#bly").classList.toggle("on", route() === "lyrics"); $("#bly").disabled = !t;
   if ($("#bcplay")) {
     setPP($("#bcplay"), playing, "bigcard");
-    $("#bcshuf").classList.toggle("on", Player.shuffle); $("#bcrep").classList.toggle("on", Player.repeat !== "off");
+    $("#bcshuf").classList.toggle("on", Player.shuffle); $("#bcshuf").classList.toggle("smart", Player.smart); $("#bcrep").classList.toggle("on", Player.repeat !== "off");
     $("#bcrep").innerHTML = icon(Player.repeat === "one" ? "repeat_one" : "repeat");
   }
   $("#seek").classList.toggle("busy", !!Player.preparing);
@@ -1022,7 +1088,7 @@ function renderNp(force = false) {
   }
   const liked = S.lib.liked.includes(t.id), p = S.progress[t.id];
   const upNext = Player.queue.slice(Player.index + 1, Player.index + 51); LISTS.queue = upNext;
-  const key = JSON.stringify([t.id, t.thumbnail, liked, Player.preparing, p, upNext.map((x) => x.id + (x.thumbnail || "")), S.offline.has(t.id)]);
+  const key = JSON.stringify([t.id, t.thumbnail, liked, Player.preparing, p, upNext.map((x) => x.id + (x.thumbnail || "") + (x.smart ? "*" : "")), S.offline.has(t.id)]);
   if (main.dataset.key !== key) {
     main.dataset.key = key;
     main.innerHTML = `<div class="np-cover" data-tid="${esc(t.id)}">${t.thumbnail ? `<img src="${esc(t.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ""}
@@ -1035,7 +1101,7 @@ function renderNp(force = false) {
     const left = Player.queue.length - Player.index - 1;
     $("#qcount").textContent = left ? `${left} song${left === 1 ? "" : "s"}` : "";
     q.innerHTML = upNext.length ? upNext.map((x, i) => `<div class="q-item" data-q="${i}" role="button" tabindex="0">${tart(x)}<div class="ellip" style="flex:1"><div class="t ellip">${esc(x.title)}</div>
-        <div class="muted ellip">${esc(x.artist || "")}</div></div><button class="icon-btn" data-rmq="${i}" title="Remove from queue">${icon("close")}</button></div>`).join("")
+        <div class="muted ellip">${x.smart ? `<span class="rec">Recommended</span> ` : ""}${esc(x.artist || "")}</div></div><button class="icon-btn" data-rmq="${i}" title="Remove from queue">${icon("close")}</button></div>`).join("")
       : `<p class="muted q-empty">${S.settings.autoplay ? "Autoplay adds similar songs when the queue runs low." : "The queue is empty."}</p>`;
     q.querySelectorAll("[data-q]").forEach((r) => r.onclick = (e) => {
       const rm = e.target.closest("[data-rmq]"); if (rm) return Player.remove(Player.index + 1 + +rm.dataset.rmq);
@@ -1079,7 +1145,7 @@ function lyricsHtml() {
       <div class="seg ${LY.mode === "word" ? "at2" : ""}" role="group" aria-label="Highlight">
         <button class="${LY.mode === "line" ? "on" : ""}" data-lymode="line" title="Line by line" aria-label="Line by line">${LINE_ICON}</button>
         <button class="${LY.mode === "word" ? "on" : ""}" data-lymode="word" title="Word by word" aria-label="Word by word">${WORD_ICON}</button></div>
-      <button class="pill3d ${LY.d3 ? "on" : ""}" id="ly3dbtn" title="3D: the camera follows each word, in time with the beat" aria-label="3D">${CUBES_ICON}</button>
+      <button class="pill3d ${LY.d3 ? "on" : ""}" id="ly3dbtn" title="3D: fly through the lyrics, words pop in with the song's tempo" aria-label="3D">${CUBES_ICON}</button>
       <button class="round" id="lyfocus" title="${focus ? "Show the side panels again" : "Fill the window with lyrics"}">${icon(focus ? "fullscreen_exit" : "fullscreen")}</button>
       <button class="round" id="lyclose" title="Close lyrics">${icon("close")}</button></div>
   </div>`;
@@ -1125,7 +1191,7 @@ function bindLyrics() {
   });
   $("#ly3dbtn")?.addEventListener("click", async () => {
     LY.d3 = !LY.d3; store.set("tunio.ly3d", LY.d3);
-    if (LY.d3 && !(await Beat.enable())) toast("3D is on, but beat detection isn't available here: the camera follows the words only.");
+    if (LY.d3) await Beat.enable(); // learns the tempo; without it, words pop in the middle way
     Stage.reset(); render(false); Lyrics.paint();
   });
   if ($("#lybig")) {

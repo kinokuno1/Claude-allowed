@@ -558,22 +558,30 @@ kbd { font: 12px/1 inherit; padding: 3px 6px; border-radius: 4px; background: va
 .ly-lines.words .ly-line.on { color: rgba(255,255,255,.42); transform: none; text-shadow: none; }
 .ly-lines.words .ly-line.on .w { --p: 0; color: transparent; -webkit-background-clip: text; background-clip: text;
   background-image: linear-gradient(90deg, #fff calc(var(--p) * 100% - 4%), rgba(255,255,255,.42) calc(var(--p) * 100% + 4%)); }
-.ly-lines.words .ly-line.on .w.now { filter: drop-shadow(0 0 10px rgba(255,255,255,.6)); }
+.ly-lines.words { position: relative; }
+.ly-lines.words .uline { position: absolute; left: 0; top: 0; height: 3px; border-radius: 2px; background: #fff; opacity: 0; pointer-events: none;
+  transition: transform .32s cubic-bezier(.3, .8, .3, 1), width .32s cubic-bezier(.3, .8, .3, 1), opacity .25s; }
+.ly-lines.words .uline.on { opacity: .9; }
 
-/* ------------------------------------------------------------------ lyrics view: 3D */
-.ly3d { position: absolute; inset: 0; z-index: 1; perspective: 900px; perspective-origin: 50% 45%; overflow: hidden; --kick: 0; }
+/* ------------------------------------------------------------------ lyrics view: 3D (flying forward through the lines) */
+.ly3d { position: absolute; inset: 0; z-index: 1; perspective: 900px; perspective-origin: 50% 50%; overflow: hidden; }
 .ly3d .cam { position: absolute; left: 50%; top: 50%; transform-style: preserve-3d; will-change: transform; }
 .ly3d .world { transform-style: preserve-3d; }
 .l3 { position: absolute; transform-style: preserve-3d; white-space: nowrap; translate: -50% -50%; font-weight: 900; letter-spacing: -.02em;
-  font-size: clamp(34px, 6cqi, 82px); color: #fff; transition: opacity .6s, filter .6s; }
-.l3.gone { opacity: .18; filter: blur(3px); }
-.w3 { display: inline-block; margin: 0 .14em; opacity: 0; transform: translateZ(-220px) scale(.4) rotateX(55deg); }
-.w3.pop { animation: pop3d .42s cubic-bezier(.2, 1.5, .4, 1) forwards; }
-.l3.cur .w3.now { text-shadow: 0 0 calc(14px + var(--kick) * 30px) rgba(255,255,255,.75); }
+  font-size: clamp(34px, 6cqi, 82px); color: #fff; transition: opacity .5s, filter .5s; }
+.l3.gone { opacity: 0; filter: blur(8px); }
+.w3 { display: inline-block; margin: 0 .14em; opacity: 0; }
 .l3:not(.cur) .w3.pop { animation: none; opacity: 1; transform: none; }
-@keyframes pop3d { 0% { opacity: 0; transform: translateZ(-220px) scale(.4) rotateX(55deg); } 60% { opacity: 1; transform: translateZ(40px) scale(1.12) rotateX(-6deg); }
+/* how hard words pop in follows the song's tempo */
+.ly3d .w3.pop, .ly3d[data-energy="mid"] .w3.pop { animation: pop-mid .42s cubic-bezier(.2, 1.3, .4, 1) forwards; }
+.ly3d[data-energy="soft"] .w3.pop { animation: pop-soft .55s cubic-bezier(.25, .8, .3, 1) forwards; }
+.ly3d[data-energy="hard"] .w3.pop { animation: pop-hard .3s cubic-bezier(.2, 1.7, .4, 1) forwards; }
+.ly3d .l3:not(.cur) .w3.pop { animation: none; opacity: 1; transform: none; }
+@keyframes pop-soft { 0% { opacity: 0; transform: translateY(14px) scale(.94); } 100% { opacity: 1; transform: none; } }
+@keyframes pop-mid { 0% { opacity: 0; transform: translateZ(-140px) scale(.7); } 60% { opacity: 1; transform: translateZ(14px) scale(1.04); }
   100% { opacity: 1; transform: none; } }
-.ly-wrap.is3d .ly-bg { filter: brightness(calc(1 + var(--kick, 0) * .35)); }
+@keyframes pop-hard { 0% { opacity: 0; transform: translateZ(-280px) scale(.35) rotateX(40deg); } 55% { opacity: 1; transform: translateZ(50px) scale(1.16); }
+  100% { opacity: 1; transform: none; } }
 .ly-wrap.is3d .ly-bg::after { background: radial-gradient(ellipse at center, rgba(10,8,14,.15), rgba(10,8,14,.7)); }
 
 /* ------------------------------------------------------------------ lyrics view: loading word by word */
@@ -630,3 +638,12 @@ kbd { font: 12px/1 inherit; padding: 3px 6px; border-radius: 4px; background: va
 @container (max-width: 640px) {
   .coll-head { flex-direction: column; align-items: flex-start; }
 }
+
+/* ------------------------------------------------------------------ smart shuffle */
+#bshuf, #bcshuf { position: relative; }
+#bshuf.smart::after, #bcshuf.smart::after { content: "✦"; position: absolute; top: 2px; right: 2px; font-size: 9px; line-height: 1; color: currentColor; }
+.q-item .rec { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: rgba(255,255,255,.12); color: #fff; }
+
+/* ------------------------------------------------------------------ press feedback on everything clickable */
+:where(button, [role="button"], .q-item, a.btn) { transition-property: scale, background-color, color, opacity; transition-duration: .14s; }
+:where(button, [role="button"], .q-item, a.btn):active:not(:disabled) { scale: .95; }
