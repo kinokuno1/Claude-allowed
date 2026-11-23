@@ -153,7 +153,8 @@ fun Modifier.chromeGlass(backdrop: Backdrop, shape: RoundedCornerShape): Modifie
     }
 
 /** Menus (Home, Search, Library, Settings): near-black with a soft neutral glow at the top. */
-val MenuGradient = Brush.verticalGradient(0f to GlowColor.copy(alpha = 0.6f), 0.35f to Bg, 1f to Bg)
+/** Menus: the flat 60% background (no glow, no gradient). */
+val MenuGradient: Brush = androidx.compose.ui.graphics.SolidColor(Bg)
 
 @Composable
 fun GradientBackground(modifier: Modifier = Modifier) {

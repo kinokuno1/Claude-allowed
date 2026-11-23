@@ -119,7 +119,7 @@ def test_http_flow_with_guest_audio():
     _, b = _req(base + "/api/jams")
     assert json.loads(b)["jams"][0]["name"] == "Kitchen"
     status, page = _req(base + "/jam/" + jid)
-    assert status == 200 and b"Kitchen" in page and b"tunio://jam" in page
+    assert status == 200 and b"Kitchen" in page and b"tunio://" in page and b"jam?u=" in page and b"intent://" in page
     _, b = _req(base + f"/api/jam/{jid}/join", {"you": "Bo"})
     guest = json.loads(b)["token"]
     _, b = _req(base + f"/api/jam/{jid}?since=0&wait=0", headers={"X-Jam-Token": guest})

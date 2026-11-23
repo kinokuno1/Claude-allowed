@@ -301,7 +301,7 @@ def page(jam_id: str, summary: dict | None) -> str:
     host = html.escape((summary or {}).get("host") or "")
     sub = f"Hosted by {host} · {summary['members']} listening" if summary else "Ask the host for a new link."
     lock = " · password needed" if summary and summary.get("locked") else ""
-    btn = ('<a class="btn" id="go" href="#">Join in Tunio</a><p class="muted">Tunio must be installed on this phone.</p>'
+    btn = ('<a class="btn" id="go" href="#">Open in Tunio</a><p class="muted">Tunio must be installed on this phone.</p>'
            if summary else "")
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>{name}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><style>
@@ -312,5 +312,9 @@ justify-content:center;font-size:44px}}h1{{margin:0 0 6px;font-size:28px}}.muted
 .btn{{display:inline-block;margin-top:22px;background:#fff;color:#0E0E12;border-radius:999px;padding:14px 26px;
 font:700 17px system-ui;text-decoration:none}}</style></head><body><main><div class="disc">♫</div>
 <h1>{name}</h1><p class="muted">{sub}{lock}</p>{btn}
-<script>var id={json.dumps(jam_id)};var a=document.getElementById('go');if(a)a.href='tunio://jam?u='+
-encodeURIComponent(location.origin)+'&j='+encodeURIComponent(id);</script></main></body></html>"""
+<script>var id={json.dumps(jam_id)};var a=document.getElementById('go');
+var q='jam?u='+encodeURIComponent(location.origin)+'&j='+encodeURIComponent(id);
+if(a){{a.href='tunio://'+q;
+/* opening the link goes straight into Tunio (the button stays, in case the phone asks first) */
+setTimeout(function(){{location.href=/android/i.test(navigator.userAgent)
+?'intent://'+q+'#Intent;scheme=tunio;package=ch.tunio.app;end':'tunio://'+q;}},60);}}</script></main></body></html>"""

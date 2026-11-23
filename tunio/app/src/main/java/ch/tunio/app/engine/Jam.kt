@@ -211,16 +211,25 @@ object Jam {
         return null
     }
 
-    /** A link was opened: look the Jam up and let the Jam screen ask to join. */
+    /** Bumped when a link put you in a Jam, so the Jam sheet opens. */
+    val opened = MutableStateFlow(0)
+
+    /** A link was opened: join right away (open Jams), or ask for the password first. */
     suspend fun openLink(server: String, id: String) {
+        if (state.value?.id == id) { opened.value++; return }
         val info = withContext(Dispatchers.IO) {
             runCatching {
                 val o = http("GET", "$server/api/jams", timeout = 6000) as JsonObject
                 Parsing.json.decodeFromJsonElement(JamList.serializer(), o).jams.firstOrNull { it.id == id }
             }.getOrNull()
         }
-        if (info == null) messages.tryEmit("That Jam has ended, or its server can't be reached.")
-        else pendingLink.value = JamFound(server, info)
+        when {
+            info == null -> messages.tryEmit("That Jam has ended, or its server can't be reached.")
+            info.locked -> pendingLink.value = JamFound(server, info)
+            else -> runCatching { join(server, id, "") }
+                .onSuccess { opened.value++; messages.tryEmit("You're in ${info.name}") }
+                .onFailure { messages.tryEmit(it.message ?: "Couldn't join the Jam") }
+        }
     }
 
     private fun start(srv: String, j: Joined) {

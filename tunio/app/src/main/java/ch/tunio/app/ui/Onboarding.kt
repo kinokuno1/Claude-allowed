@@ -102,7 +102,6 @@ fun OnboardingScreen(onFinish: () -> Unit) {
         Modifier
             .fillMaxSize()
             .background(Bg)
-            .background(Brush.verticalGradient(0f to GlowColor.copy(alpha = 0.7f), 0.5f to Color.Transparent))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
     ) {
         AnimatedContent(
@@ -188,7 +187,7 @@ private fun ColumnScope.ServerStep(onPick: (String) -> Unit, onType: () -> Unit,
                     val f = found
                     when {
                         f != null -> Row(
-                            Modifier.fillMaxWidth().clickable { onPick(f) },
+                            Modifier.fillMaxWidth().tap { onPick(f) },
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(Icons.Rounded.CheckCircle, null, tint = Good)
@@ -216,7 +215,7 @@ private fun ColumnScope.ServerStep(onPick: (String) -> Unit, onType: () -> Unit,
     }
     Text(
         "I don't have one", color = Muted, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onSkip).padding(vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).tap(onClick = onSkip).padding(vertical = 12.dp),
     )
 }
 
@@ -231,7 +230,7 @@ private fun ColumnScope.PasswordStep(
 ) {
     val scope = rememberCoroutineScope()
     Row(
-        Modifier.padding(top = 16.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onBack).padding(vertical = 6.dp, horizontal = 2.dp),
+        Modifier.padding(top = 16.dp).clip(RoundedCornerShape(10.dp)).tap(onClick = onBack).padding(vertical = 6.dp, horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null, tint = AccentLight)
@@ -310,7 +309,7 @@ private fun Feature(icon: ImageVector, title: String, text: String) {
 @Composable
 private fun Option(icon: ImageVector, title: String, text: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Surface30).clickable(onClick = onClick).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Surface30).tap(onClick = onClick).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = AccentLight, modifier = Modifier.size(26.dp))
@@ -346,7 +345,7 @@ private fun Primary(text: String, busy: Boolean = false, enabled: Boolean = true
             .height(54.dp)
             .clip(RoundedCornerShape(27.dp))
             .background(Color.White.copy(alpha = if (enabled || busy) 1f else 0.5f))
-            .clickable(enabled = enabled, onClick = onClick),
+            .tap(enabled = enabled, onClick = onClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {

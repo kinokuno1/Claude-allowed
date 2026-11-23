@@ -135,7 +135,7 @@ fun GlassIconButton(
         Modifier
             .size(size)
             .glass(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .tap(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription, tint = if (enabled) tint else Muted, modifier = Modifier.size(size * 0.5f))
@@ -151,7 +151,7 @@ fun AccentButton(text: String, onClick: () -> Unit, icon: ImageVector? = null, e
             .heightIn(min = 46.dp)
             .clip(shape)
             .then(if (enabled) Modifier.background(Color.White) else Modifier.background(Glass.fill))
-            .clickable(enabled = enabled, onClick = onClick)
+            .tap(enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -172,7 +172,7 @@ fun GlassButton(text: String, onClick: () -> Unit, icon: ImageVector? = null, en
         modifier
             .heightIn(min = 44.dp)
             .glass(RoundedCornerShape(50))
-            .clickable(enabled = enabled, onClick = onClick)
+            .tap(enabled = enabled, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -195,7 +195,7 @@ fun GlassChip(label: String, selected: Boolean, color: Color = AccentLight, onCl
             .clip(shape)
             .then(if (selected) Modifier.background(color).background(Glass.sheen) else Modifier.background(Glass.fill))
             .border(1.dp, Glass.rim, shape)
-            .clickable(onClick = onClick)
+            .tap(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Text(label, color = if (selected) Color.Black else TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -313,7 +313,7 @@ fun TrackRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .tap(onClick = onClick)
             .padding(start = 16.dp, top = 7.dp, bottom = 7.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -360,7 +360,7 @@ fun TrackMenu(track: Track, playlistId: String? = null, tint: Color = Muted) {
     val liked = track.id in lib.liked
     Box {
         Box(
-            Modifier.size(44.dp).clip(CircleShape).clickable { open = true },
+            Modifier.size(44.dp).clip(CircleShape).tap { open = true },
             contentAlignment = Alignment.Center,
         ) { Icon(Icons.Rounded.MoreHoriz, "More", tint = tint) }
         DropdownMenu(
@@ -485,7 +485,7 @@ fun AddToPlaylistDialog() {
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .clickable {
+                            .tap {
                                 Library.addToPlaylist(p.id, pending)
                                 PlayerController.messages.tryEmit("Added to ${p.name}")
                                 Ui.addToPlaylist.value = null

@@ -66,6 +66,13 @@ object PlayerController {
     val preparing = MutableStateFlow(false)
     val isPlaying = MutableStateFlow(false)
     val shuffle = MutableStateFlow(false)
+    /** Smart shuffle: a song you might like after every 3 to 5 songs (the shuffle button's third state). */
+    val smart = MutableStateFlow(false)
+    /** Recommended songs smart shuffle put in the queue (shown as "Recommended"). */
+    val recommended = MutableStateFlow<Set<String>>(emptySet())
+    private val smartPool = ArrayDeque<Track>()
+    private var smartJob: Job? = null
+    private var nextGap = (3..5).random()
     val repeat = MutableStateFlow(RepeatMode.OFF)
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
@@ -116,6 +123,7 @@ object PlayerController {
                 }
             }
         }
+        if (smart.value) fillSmart()
         preloadNext()
     }
 
@@ -290,6 +298,9 @@ object PlayerController {
         if (Jam.active) return Jam.add(listOf(tracks[start.coerceIn(tracks.indices)])) // in a Jam, a tapped song joins the queue
         val s = start.coerceIn(tracks.indices)
         shuffle.value = shuffled
+        if (!shuffled) smart.value = false
+        recommended.value = emptySet()
+        smartPool.clear()
         val list: List<Track>
         val startIndex: Int
         if (shuffled) {
@@ -367,9 +378,68 @@ object PlayerController {
         if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
     }
 
-    /** Shuffles the songs after the current one (or restores the original order). */
+    /** Shuffle button: off -> shuffle -> smart shuffle (a song you might like every 3 to 5 songs) -> off. */
     fun toggleShuffle() {
-        val on = !shuffle.value
+        when {
+            !shuffle.value -> setShuffle(true)
+            !smart.value && !Jam.active -> {
+                smart.value = true
+                messages.tryEmit("Smart shuffle: a song you might like every few songs")
+                fillSmart()
+            }
+            else -> {
+                smart.value = false
+                removeUpcomingRecommendations()
+                setShuffle(false)
+            }
+        }
+    }
+
+    /** Smart shuffle: puts a recommended song (similar to the list) after every 3 to 5 songs coming up. */
+    private fun fillSmart() {
+        if (!smart.value || Jam.active || exo.mediaItemCount == 0 || smartJob?.isActive == true) return
+        smartJob = scope.launch {
+            val rec = recommended.value
+            val cur = exo.currentMediaItemIndex
+            var gap = 0
+            var i = cur
+            while (i >= 0 && exo.getMediaItemAt(i).mediaId !in rec) { gap++; i-- }
+            val at = mutableListOf<Int>()
+            var j = cur + 1
+            while (j < exo.mediaItemCount && j <= cur + 12) {
+                if (exo.getMediaItemAt(j).mediaId in rec) gap = 0
+                else if (++gap >= nextGap) { at += j + 1; gap = 0; nextGap = (3..5).random() }
+                j++
+            }
+            if (at.isEmpty()) return@launch
+            if (smartPool.size < at.size) refillSmart()
+            for (pos in at.asReversed()) {
+                val t = smartPool.removeFirstOrNull() ?: break
+                if (pos > exo.mediaItemCount || queue.value.any { it.id == t.id }) continue
+                recommended.value = recommended.value + t.id
+                exo.addMediaItem(pos, item(t))
+            }
+        }
+    }
+
+    private suspend fun refillSmart() {
+        val rec = recommended.value
+        val seed = queue.value.filter { it.id !in rec }.randomOrNull() ?: current ?: return
+        val recent = Library.tracks(Library.data.value.recent.take(30))
+        val similar = runCatching { Engine.similar(seed, queue.value + recent) }.getOrDefault(emptyList())
+        smartPool.addAll(similar.filter { t -> queue.value.none { it.id == t.id } && smartPool.none { it.id == t.id } }.shuffled())
+    }
+
+    private fun removeUpcomingRecommendations() {
+        val rec = recommended.value
+        for (i in exo.mediaItemCount - 1 downTo exo.currentMediaItemIndex + 1) {
+            if (exo.getMediaItemAt(i).mediaId in rec) exo.removeMediaItem(i)
+        }
+        unshuffled = unshuffled?.filter { it.id !in rec }
+    }
+
+    /** Shuffles the songs after the current one (or restores the original order). */
+    private fun setShuffle(on: Boolean) {
         shuffle.value = on
         val n = exo.mediaItemCount
         if (n < 2) return

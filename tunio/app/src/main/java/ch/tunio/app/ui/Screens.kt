@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -143,7 +144,7 @@ fun NavBar(backLabel: String? = null, actions: @Composable () -> Unit = {}) {
     ) {
         if (backLabel != null) {
             Row(
-                Modifier.clip(RoundedCornerShape(10.dp)).clickable { Ui.back() }.padding(horizontal = 6.dp, vertical = 6.dp),
+                Modifier.clip(RoundedCornerShape(10.dp)).tap { Ui.back() }.padding(horizontal = 6.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = AccentLight, modifier = Modifier.size(22.dp))
@@ -179,7 +180,7 @@ fun PlayCircle(enabled: Boolean = true, size: Dp = 56.dp, playing: Boolean = fal
             .size(size)
             .clip(CircleShape)
             .background(if (enabled) Color.White else Glass.fill)
-            .clickable(enabled = enabled, onClick = onClick),
+            .tap(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -244,7 +245,7 @@ fun HomeScreen() {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = bottomPadding()) {
         item {
             NavBar {
-                GlassIconButton(Icons.Rounded.Settings, "Settings", onClick = { Ui.push(Route.Settings) }, size = 40.dp, tint = AccentLight)
+                SettingsGear()
             }
             LargeTitle(greeting)
         }
@@ -302,7 +303,7 @@ fun HomeScreen() {
                     if (home == HomeServer.State.NotSetUp) {
                         Text(
                             "Have a Tunio home server? Connect it", color = AccentLight, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable { Ui.push(Route.Settings) }.padding(top = 4.dp),
+                            modifier = Modifier.tap { Ui.push(Route.Settings) }.padding(top = 4.dp),
                         )
                     }
                 }
@@ -315,13 +316,13 @@ fun HomeScreen() {
 private fun ShelfHeader(title: String, onMore: (() -> Unit)?) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
         Text(title, color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-        if (onMore != null) Text("Show all", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onMore))
+        if (onMore != null) Text("Show all", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.tap(onClick = onMore))
     }
 }
 
 @Composable
 private fun Card(image: String?, title: String, subtitle: String, onClick: () -> Unit) {
-    Column(Modifier.width(140.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick)) {
+    Column(Modifier.width(140.dp).clip(RoundedCornerShape(8.dp)).tap(onClick = onClick)) {
         Artwork(image, 140.dp, 8.dp)
         Spacer(Modifier.height(6.dp))
         Text(title, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -332,7 +333,7 @@ private fun Card(image: String?, title: String, subtitle: String, onClick: () ->
 @Composable
 private fun QuickTile(title: String, image: String?, icon: ImageVector?, brush: Brush?, modifier: Modifier, onClick: () -> Unit) {
     Row(
-        modifier.height(56.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.08f)).clickable(onClick = onClick),
+        modifier.height(56.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.08f)).tap(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (brush != null && icon != null) GradientTile(icon, brush, 56.dp, 0.dp) else Artwork(image, 56.dp, 0.dp)
@@ -404,7 +405,7 @@ fun SearchScreen() {
                         color = Muted, fontSize = 14.sp, lineHeight = 19.sp,
                     )
                     Row(
-                        Modifier.clip(RoundedCornerShape(50)).background(Surface30Hi).clickable {
+                        Modifier.clip(RoundedCornerShape(50)).background(Surface30Hi).tap {
                             val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
                             val text = clip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
                             if (text.isNotBlank()) SearchModel.openLink(text)
@@ -449,7 +450,7 @@ fun SearchScreen() {
                             PlayCircle(size = 50.dp) { PlayerController.play(r.tracks, 0, shuffled = false) }
                             Icon(
                                 Icons.Rounded.Shuffle, "Shuffle", tint = TextPrimary,
-                                modifier = Modifier.size(44.dp).clip(CircleShape).clickable { PlayerController.play(r.tracks, 0, shuffled = true) }.padding(10.dp),
+                                modifier = Modifier.size(44.dp).clip(CircleShape).tap { PlayerController.play(r.tracks, 0, shuffled = true) }.padding(10.dp),
                             )
                             Spacer(Modifier.weight(1f))
                             GlassButton("Save as playlist", icon = Icons.AutoMirrored.Rounded.PlaylistAdd, onClick = {
@@ -481,7 +482,7 @@ private fun SearchField(query: String) {
         trailing = {
             if (query.isNotEmpty()) {
                 Box(
-                    Modifier.size(36.dp).clip(CircleShape).clickable { SearchModel.query.value = "" },
+                    Modifier.size(36.dp).clip(CircleShape).tap { SearchModel.query.value = "" },
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Rounded.Clear, "Clear", tint = Muted, modifier = Modifier.size(20.dp)) }
             }
@@ -499,7 +500,7 @@ fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifie
         Box(Modifier.offset(x = w * x).width(w).fillMaxHeight().clip(RoundedCornerShape(7.dp)).background(Color(0xFF636366)))
         Row(Modifier.fillMaxSize()) {
             options.forEachIndexed { i, label ->
-                Box(Modifier.weight(1f).fillMaxHeight().clickable { onSelect(i) }, contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(1f).fillMaxHeight().tap { onSelect(i) }, contentAlignment = Alignment.Center) {
                     Text(label, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
@@ -519,7 +520,7 @@ fun LibraryScreen() {
             NavBar {
                 Icon(
                     Icons.Rounded.Add, "Create playlist", tint = AccentLight,
-                    modifier = Modifier.size(40.dp).clip(CircleShape).clickable { creating = true }.padding(8.dp),
+                    modifier = Modifier.size(40.dp).clip(CircleShape).tap { creating = true }.padding(8.dp),
                 )
             }
             LargeTitle("Your Library")
@@ -547,7 +548,7 @@ fun LibraryScreen() {
         }
         item {
             Row(
-                Modifier.fillMaxWidth().clickable { creating = true }.padding(horizontal = 16.dp, vertical = 14.dp),
+                Modifier.fillMaxWidth().tap { creating = true }.padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Rounded.Add, null, tint = AccentLight)
@@ -568,7 +569,7 @@ fun LibraryScreen() {
 @Composable
 private fun LibraryRow(title: String, subtitle: String, image: String?, brush: Brush?, icon: ImageVector?, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp),
+        Modifier.fillMaxWidth().tap(onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (brush != null && icon != null) GradientTile(icon, brush, 56.dp, 6.dp) else Artwork(image, 56.dp, 6.dp)
@@ -647,7 +648,7 @@ fun CollectionScreen(route: Route) {
                         }
                         else -> Icon(
                             Icons.Rounded.Download, "Download $missing songs", tint = TextPrimary,
-                            modifier = Modifier.size(44.dp).clip(CircleShape).clickable { AudioStore.downloadAll(tracks) }.padding(8.dp),
+                            modifier = Modifier.size(44.dp).clip(CircleShape).tap { AudioStore.downloadAll(tracks) }.padding(8.dp),
                         )
                     }
                 }
@@ -655,7 +656,7 @@ fun CollectionScreen(route: Route) {
                     Box {
                         Icon(
                             Icons.Rounded.MoreHoriz, "More", tint = TextPrimary,
-                            modifier = Modifier.size(44.dp).clip(CircleShape).clickable { menu = true }.padding(9.dp),
+                            modifier = Modifier.size(44.dp).clip(CircleShape).tap { menu = true }.padding(9.dp),
                         )
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(14.dp), containerColor = MenuBg) {
                             DropdownMenuItem(
@@ -671,8 +672,8 @@ fun CollectionScreen(route: Route) {
                 }
                 Spacer(Modifier.weight(1f))
                 Icon(
-                    Icons.Rounded.Shuffle, "Shuffle", tint = if (shuffle) AccentLight else TextPrimary,
-                    modifier = Modifier.size(44.dp).clip(CircleShape).clickable(enabled = tracks.isNotEmpty()) {
+                    Icons.Rounded.Shuffle, "Shuffle", tint = TextPrimary,
+                    modifier = Modifier.size(44.dp).clip(CircleShape).tap(enabled = tracks.isNotEmpty()) {
                         PlayerController.play(tracks, tracks.indices.random(), shuffled = true)
                     }.padding(9.dp),
                 )
@@ -765,7 +766,7 @@ fun SettingsScreen() {
             GroupDivider()
             Text(
                 "Clear cache", color = Color(0xFFFF6961), fontSize = 16.sp,
-                modifier = Modifier.fillMaxWidth().clickable { AudioStore.clearCache(); StreamCache.clear(); refresh++ }.padding(16.dp),
+                modifier = Modifier.fillMaxWidth().tap { AudioStore.clearCache(); StreamCache.clear(); refresh++ }.padding(16.dp),
             )
         }
 
@@ -779,14 +780,14 @@ fun SettingsScreen() {
             GroupDivider()
             Text(
                 if (status == EngineStatus.Updating) "Updating…" else "Update yt-dlp now", color = AccentLight, fontSize = 16.sp,
-                modifier = Modifier.fillMaxWidth().clickable(enabled = status == EngineStatus.Ready) {
+                modifier = Modifier.fillMaxWidth().tap(enabled = status == EngineStatus.Ready) {
                     updateMsg = "Updating…"
                     scope.launch { updateMsg = runCatching { Engine.update() }.getOrElse { "Update failed: ${shortError(it)}" } }
                 }.padding(16.dp),
             )
             if (status is EngineStatus.Failed) {
                 GroupDivider()
-                Text("Retry starting the engine", color = AccentLight, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().clickable { Engine.start(context) }.padding(16.dp))
+                Text("Retry starting the engine", color = AccentLight, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().tap { Engine.start(context) }.padding(16.dp))
             }
         }
 
@@ -796,7 +797,7 @@ fun SettingsScreen() {
                 GlassTextField(value = extra, onValueChange = { extra = it }, placeholder = "(none)", leading = Icons.Rounded.Settings)
             }
             GroupDivider()
-            Text("Save", color = AccentLight, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().clickable { Engine.extraArgs = extra; updateMsg = "Options saved" }.padding(16.dp))
+            Text("Save", color = AccentLight, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().tap { Engine.extraArgs = extra; updateMsg = "Options saved" }.padding(16.dp))
         }
         GroupFooter("Advanced. Added to every yt-dlp call, e.g. --extractor-args \"youtube:player_client=default\"")
 
@@ -849,7 +850,7 @@ private fun HomeServerGroup() {
         GroupDivider()
         Text(
             "Save and test", color = AccentLight, fontSize = 16.sp,
-            modifier = Modifier.fillMaxWidth().clickable {
+            modifier = Modifier.fillMaxWidth().tap {
                 HomeServer.configure(address, password)
                 message = "Checking…"
                 scope.launch { message = HomeServer.test() }
@@ -858,12 +859,12 @@ private fun HomeServerGroup() {
         GroupDivider()
         Text(
             "Scan its QR code", color = AccentLight, fontSize = 16.sp,
-            modifier = Modifier.fillMaxWidth().clickable { message = null; QrScan.open.value = true }.padding(16.dp),
+            modifier = Modifier.fillMaxWidth().tap { message = null; QrScan.open.value = true }.padding(16.dp),
         )
         GroupDivider()
         Text(
             if (searching) "Looking on your Wi-Fi…" else "Find it on my Wi-Fi", color = AccentLight, fontSize = 16.sp,
-            modifier = Modifier.fillMaxWidth().clickable(enabled = !searching) {
+            modifier = Modifier.fillMaxWidth().tap(enabled = !searching) {
                 searching = true
                 message = null
                 scope.launch {
@@ -882,7 +883,7 @@ private fun HomeServerGroup() {
             GroupDivider()
             Text(
                 "Forget this server", color = Color(0xFFFF6961), fontSize = 16.sp,
-                modifier = Modifier.fillMaxWidth().clickable {
+                modifier = Modifier.fillMaxWidth().tap {
                     HomeServer.forget(); address = ""; password = ""; message = null
                 }.padding(16.dp),
             )
@@ -892,4 +893,24 @@ private fun HomeServerGroup() {
         message ?: ("A Tunio home server (a Raspberry Pi) finds and keeps songs for your phone, so they start faster and your battery lasts longer. " +
             "When it can't be reached, Tunio works on its own."),
     )
+}
+
+
+/** The settings button: the gear turns a little when tapped, then Settings opens. */
+@Composable
+private fun SettingsGear() {
+    val scope = rememberCoroutineScope()
+    val turn = remember { androidx.compose.animation.core.Animatable(0f) }
+    Box(
+        Modifier.size(40.dp).glass(CircleShape).tap {
+            scope.launch {
+                launch { turn.animateTo(turn.value + 90f, spring(dampingRatio = 0.55f, stiffness = 260f)) }
+                kotlinx.coroutines.delay(140)
+                Ui.push(Route.Settings)
+            }
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Rounded.Settings, "Settings", tint = TextPrimary, modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = turn.value })
+    }
 }

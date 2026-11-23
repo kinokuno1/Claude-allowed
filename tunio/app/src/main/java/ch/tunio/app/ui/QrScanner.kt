@@ -426,7 +426,7 @@ private fun Pill(text: String, light: Boolean = true, onClick: () -> Unit) {
     Box(
         Modifier.height(48.dp).clip(RoundedCornerShape(24.dp))
             .background(if (light) Color.White else Color.White.copy(alpha = 0.14f))
-            .clickable(onClick = onClick).padding(horizontal = 22.dp),
+            .tap(onClick = onClick).padding(horizontal = 22.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(text, color = if (light) Bg else TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -438,7 +438,7 @@ private fun CircleButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
     Box(
         Modifier.size(46.dp).clip(CircleShape)
             .background(if (active) Color.White else Color.Black.copy(alpha = 0.45f))
-            .clickable(onClick = onClick),
+            .tap(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, description, tint = if (active) Bg else TextPrimary, modifier = Modifier.size(24.dp))

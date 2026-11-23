@@ -14,6 +14,8 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -335,19 +337,14 @@ private fun GlassTabBar(backdrop: Backdrop, selected: Route) {
             val targetRight = targetLeft + itemPx
             if (left.value == targetLeft && right.value == targetRight) return@LaunchedEffect
             val toRight = targetLeft > left.value
-            // 1. Brace: a quick squeeze.
-            squeeze.animateTo(0.86f, tween(durationMillis = 90, easing = FastOutSlowInEasing))
+            // Moves right away (no wind-up): the leading edge shoots ahead, the trailing one follows a little
+            // softer so the pill stretches like a drop, and a quick squish as it lands.
             coroutineScope {
-                // 2. Release with a bouncy spring.
-                launch { squeeze.animateTo(1f, spring(dampingRatio = 0.32f, stiffness = 520f)) }
-                // 3. Leading edge rushes ahead, trailing edge follows later and softer -> stretch, then jiggle.
+                launch { squeeze.snapTo(0.93f); squeeze.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 700f)) }
                 val lead = if (toRight) right else left
                 val trail = if (toRight) left else right
-                launch { lead.animateTo(if (toRight) targetRight else targetLeft, spring(dampingRatio = 0.5f, stiffness = 380f)) }
-                launch {
-                    delay(70)
-                    trail.animateTo(if (toRight) targetLeft else targetRight, spring(dampingRatio = 0.38f, stiffness = 230f))
-                }
+                launch { lead.animateTo(if (toRight) targetRight else targetLeft, spring(dampingRatio = 0.62f, stiffness = 900f)) }
+                launch { trail.animateTo(if (toRight) targetLeft else targetRight, spring(dampingRatio = 0.55f, stiffness = 480f)) }
             }
         }
 
@@ -405,7 +402,8 @@ private fun TabItem(tab: Tab, active: Boolean, modifier: Modifier) {
     Column(
         modifier
             .fillMaxHeight()
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { Ui.tab(tab.route) },
+            // switches the moment the finger touches the tab (no waiting for it to lift)
+            .pointerInput(tab.route) { detectTapGestures(onPress = { Ui.tab(tab.route) }) },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
     ) {
@@ -424,7 +422,7 @@ private fun TabItem(tab: Tab, active: Boolean, modifier: Modifier) {
             Icon(
                 if (active) tab.selectedIcon else tab.icon,
                 tab.label,
-                tint = if (active) AccentLight else Muted,
+                tint = if (active) TextPrimary else Muted,
                 modifier = Modifier
                     .size(24.dp)
                     .graphicsLayer {
@@ -436,7 +434,7 @@ private fun TabItem(tab: Tab, active: Boolean, modifier: Modifier) {
         }
         Text(
             tab.label,
-            color = if (active) AccentLight else Muted,
+            color = if (active) TextPrimary else Muted,
             fontSize = 11.sp,
             fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
         )

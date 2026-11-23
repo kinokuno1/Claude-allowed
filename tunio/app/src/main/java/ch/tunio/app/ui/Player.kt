@@ -41,6 +41,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.outlined.Lyrics
+import androidx.compose.material.icons.automirrored.outlined.QueueMusic
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
@@ -146,7 +149,7 @@ fun MiniPlayer(backdrop: Backdrop) {
         Modifier
             .fillMaxWidth()
             .chromeGlass(backdrop, shape)
-            .clickable { Ui.playerOpen.value = true },
+            .tap { Ui.playerOpen.value = true },
     ) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Artwork(track.thumbnail, 44.dp, 8.dp, trackId = track.id)
@@ -160,7 +163,7 @@ fun MiniPlayer(backdrop: Backdrop) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = TextPrimary)
                 }
             } else {
-                Box(Modifier.size(40.dp).clip(CircleShape).clickable { PlayerController.togglePlay() }, contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(CircleShape).tap { PlayerController.togglePlay() }, contentAlignment = Alignment.Center) {
                     PlayPauseIcon(playing, TextPrimary, 28.dp)
                 }
             }
@@ -178,8 +181,38 @@ fun MiniPlayer(backdrop: Backdrop) {
 
 @Composable
 private fun RoundIcon(icon: ImageVector, description: String, size: Dp, iconSize: Dp, tint: Color = TextPrimary, onClick: () -> Unit) {
-    Box(Modifier.size(size).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).clip(CircleShape).tap(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, description, tint = tint, modifier = Modifier.size(iconSize))
+    }
+}
+
+/**
+ * An on/off button: outlined when off, filled when on (white, no colour change). Icons without a filled
+ * version get a filled white circle behind a dark icon. A little pop when it changes.
+ */
+@Composable
+fun ToggleIcon(
+    on: Boolean, icon: ImageVector, filledIcon: ImageVector?, description: String, size: Dp, iconSize: Dp,
+    badge: ImageVector? = null, onClick: () -> Unit,
+) {
+    val pop = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(on) {
+        pop.snapTo(0.82f)
+        pop.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 500f))
+    }
+    val fill by animateFloatAsState(if (on && filledIcon == null) 1f else 0f, tween(180), label = "fill")
+    Box(Modifier.size(size).clip(CircleShape).tap(onClick = onClick), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(iconSize + 16.dp).graphicsLayer { scaleX = fill; scaleY = fill; alpha = fill }.clip(CircleShape).background(Color.White),
+        )
+        Icon(
+            if (on && filledIcon != null) filledIcon else icon, description,
+            tint = if (fill > 0.5f) Bg else TextPrimary,
+            modifier = Modifier.size(iconSize).graphicsLayer { scaleX = pop.value; scaleY = pop.value },
+        )
+        if (badge != null && on) {
+            Icon(badge, null, tint = TextPrimary, modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 2.dp).size(12.dp))
+        }
     }
 }
 
@@ -263,11 +296,11 @@ fun NowPlayingScreen() {
                     40.dp, 26.dp, tint = if (track.id in offline) Good else TextPrimary,
                 ) { if (track.id in offline) AudioStore.removeDownload(track) else AudioStore.downloadAll(listOf(track)) }
                 val pop by animateFloatAsState(if (liked) 1f else 0.999f, spring(dampingRatio = 0.3f, stiffness = 600f), label = "like")
-                Box(Modifier.size(40.dp).clip(CircleShape).clickable { Library.toggleLike(track) }, contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(CircleShape).tap { Library.toggleLike(track) }, contentAlignment = Alignment.Center) {
                     val likeScale by animateFloatAsState(if (liked) 1.15f else 1f, spring(dampingRatio = 0.3f, stiffness = 500f), label = "likeScale")
                     Icon(
                         if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Like",
-                        tint = if (liked) PinkLight else TextPrimary, modifier = Modifier.size(26.dp).scale(likeScale * pop),
+                        tint = TextPrimary, modifier = Modifier.size(26.dp).scale(likeScale * pop),
                     )
                 }
             }
@@ -282,7 +315,7 @@ fun NowPlayingScreen() {
                 },
                 colors = SliderDefaults.colors(
                     thumbColor = Color.White,
-                    activeTrackColor = if (dragging) AccentLight else Color.White,
+                    activeTrackColor = Color.White,
                     inactiveTrackColor = Color.White.copy(alpha = 0.22f),
                 ),
                 modifier = Modifier.padding(top = 6.dp),
@@ -298,24 +331,27 @@ fun NowPlayingScreen() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                RoundIcon(Icons.Rounded.Shuffle, "Shuffle", 48.dp, 24.dp, tint = if (shuffle) AccentLight else TextPrimary) { PlayerController.toggleShuffle() }
+                val smart by PlayerController.smart.collectAsState()
+                ToggleIcon(
+                    shuffle, Icons.Rounded.Shuffle, null, if (smart) "Smart shuffle" else "Shuffle", 48.dp, 22.dp,
+                    badge = if (smart) Icons.Rounded.AutoAwesome else null,
+                ) { PlayerController.toggleShuffle() }
                 RoundIcon(Icons.Rounded.SkipPrevious, "Previous", 58.dp, 42.dp) { PlayerController.previous() }
                 Box(
-                    Modifier.size(76.dp).clip(CircleShape).background(Color.White).clickable { PlayerController.togglePlay() },
+                    Modifier.size(76.dp).clip(CircleShape).background(Color.White).tap { PlayerController.togglePlay() },
                     contentAlignment = Alignment.Center,
                 ) {
                     if (preparing) CircularProgressIndicator(Modifier.size(30.dp), color = Bg, strokeWidth = 3.dp)
                     else PlayPauseIcon(playing, Bg, 44.dp)
                 }
                 RoundIcon(Icons.Rounded.SkipNext, "Next", 58.dp, 42.dp) { PlayerController.next() }
-                RoundIcon(
-                    if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Repeat", 48.dp, 24.dp,
-                    tint = if (repeat == RepeatMode.OFF) TextPrimary else AccentLight,
+                ToggleIcon(
+                    repeat != RepeatMode.OFF, if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, null, "Repeat", 48.dp, 22.dp,
                 ) { PlayerController.cycleRepeat() }
             }
             // lyrics · home server · queue
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                RoundIcon(Icons.Rounded.Lyrics, "Lyrics", 44.dp, 24.dp, tint = if (panel == Panel.LYRICS) AccentLight else TextPrimary) {
+                ToggleIcon(panel == Panel.LYRICS, Icons.Outlined.Lyrics, Icons.Rounded.Lyrics, "Lyrics", 44.dp, 24.dp) {
                     panel = if (panel == Panel.LYRICS) Panel.COVER else Panel.LYRICS
                 }
                 Spacer(Modifier.weight(1f))
@@ -326,7 +362,7 @@ fun NowPlayingScreen() {
                 }
                 Spacer(Modifier.weight(1f))
                 JamButton()
-                RoundIcon(Icons.AutoMirrored.Rounded.QueueMusic, "Queue", 44.dp, 24.dp, tint = if (panel == Panel.QUEUE) AccentLight else TextPrimary) {
+                ToggleIcon(panel == Panel.QUEUE, Icons.AutoMirrored.Outlined.QueueMusic, Icons.AutoMirrored.Rounded.QueueMusic, "Queue", 44.dp, 24.dp) {
                     panel = if (panel == Panel.QUEUE) Panel.COVER else Panel.QUEUE
                 }
             }
@@ -418,7 +454,7 @@ private fun LineLyricsList(lines: List<ch.tunio.app.engine.LyricLine>, posMs: Lo
             Text(
                 line.text.ifBlank { "♪" }, color = color, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp,
                 modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = s; scaleY = s; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
-                    .clickable { PlayerController.seekTo((line.time * 1000).toLong()) },
+                    .tap { PlayerController.seekTo((line.time * 1000).toLong()) },
             )
         }
     }
@@ -432,7 +468,7 @@ private fun WordLyricsList(lines: List<WordLine>, posMs: Long) {
     LaunchedEffect(idx) { if (idx >= 0) list.animateScrollToItem(idx, -220) }
     LazyColumn(state = list, contentPadding = PaddingValues(vertical = 140.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         itemsIndexed(lines) { i, line ->
-            val mod = Modifier.fillMaxWidth().clickable { PlayerController.seekTo((line.start * 1000).toLong()) }
+            val mod = Modifier.fillMaxWidth().tap { PlayerController.seekTo((line.start * 1000).toLong()) }
             when {
                 i == idx -> CurrentWordLine(line, mod)
                 else -> Text(sungText(line, if (i < idx) Double.POSITIVE_INFINITY else Double.NEGATIVE_INFINITY), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp, modifier = mod)
@@ -485,7 +521,7 @@ private fun LyricsModeToggle(mode: String, onChange: (String) -> Unit) {
                 val tint by animateColorAsState(if (on) Bg else TextPrimary, tween(200), label = "tint")
                 Box(
                     Modifier.size(width = 40.dp, height = 30.dp).clip(CircleShape)
-                        .clickable {
+                        .tap {
                             if (!on) {
                                 view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                                 onChange(m)
@@ -541,14 +577,18 @@ private fun QueuePanel(queue: List<Track>, index: Int) {
         itemsIndexed(queue, key = { i, t -> "$i-${t.id}" }) { i, t ->
             if (i > index) {
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { PlayerController.jumpTo(i) }.padding(vertical = 6.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).tap { PlayerController.jumpTo(i) }.padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Artwork(t.thumbnail, 44.dp, 6.dp, trackId = t.id)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(t.title, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
-                        Text(t.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Muted, fontSize = 13.sp)
+                        val rec by PlayerController.recommended.collectAsState()
+                        Text(
+                            (if (t.id in rec) "✦ Recommended · " else "") + t.artist,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, color = Muted, fontSize = 13.sp,
+                        )
                     }
                     RoundIcon(Icons.Rounded.Close, "Remove", 40.dp, 20.dp, tint = Muted) { PlayerController.removeFromQueue(i) }
                 }
