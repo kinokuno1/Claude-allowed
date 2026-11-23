@@ -155,8 +155,9 @@ struct PlayFab: View {
     var action: () -> Void
     var body: some View {
         Button(action: action) {
-            Image(systemName: playing ? "pause.fill" : "play.fill").font(.system(size: size * 0.42, weight: .bold)).foregroundStyle(.white)
-                .frame(width: size, height: size).background(Theme.accentGradient, in: Circle())
+            Image(systemName: playing ? "pause.fill" : "play.fill").font(.system(size: size * 0.42, weight: .bold)).foregroundStyle(Theme.c60)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: size, height: size).background(Color.white, in: Circle())
                 .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
         }.buttonStyle(.plain)
     }

@@ -58,7 +58,7 @@ struct HomeView: View {
             .padding(.horizontal, 16).padding(.bottom, 24)
         }
         .background(alignment: .top) {
-            LinearGradient(colors: [Theme.accent.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom).frame(height: 320).ignoresSafeArea()
+            LinearGradient(colors: [Theme.glow.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom).frame(height: 320).ignoresSafeArea()
         }
         .navigationTitle(greeting)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink(value: Route.settings) { Image(systemName: "gearshape") } } }

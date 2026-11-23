@@ -112,7 +112,7 @@ struct PlayerView: View {
                 ZStack {
                     Circle().fill(Theme.text)
                     if player.isLoading { ProgressView().tint(Theme.c60) }
-                    else { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 34)).foregroundStyle(Theme.c60) }
+                    else { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 34)).foregroundStyle(Theme.c60).contentTransition(.symbolEffect(.replace)) }
                 }.frame(width: 76, height: 76)
             }
             Spacer()
@@ -160,7 +160,7 @@ struct ProgressBar: View {
             GeometryReader { g in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.white.opacity(0.2))
-                    Capsule().fill(dragging != nil ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.text)).frame(width: g.size.width * shown)
+                    Capsule().fill(dragging != nil ? AnyShapeStyle(Theme.accentLight) : AnyShapeStyle(Theme.text)).frame(width: g.size.width * shown)
                 }
                 .frame(height: dragging != nil ? 8 : 4)
                 .frame(maxHeight: .infinity)

@@ -175,7 +175,7 @@ struct CollectionView: View {
                 .overlay(LinearGradient(colors: [.clear, Theme.c60], startPoint: .top, endPoint: .bottom))
                 .ignoresSafeArea()
         } else {
-            LinearGradient(colors: [(kind == .liked ? Theme.accent : Color(red: 0.18, green: 0.43, blue: 0.56)).opacity(0.45), .clear],
+            LinearGradient(colors: [(kind == .liked ? Theme.likedColor : Theme.downloadsColor).opacity(0.45), .clear],
                            startPoint: .top, endPoint: .bottom).frame(height: 420).ignoresSafeArea()
         }
     }

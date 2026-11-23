@@ -130,7 +130,7 @@ struct MiniPlayer: View {
                     ProgressView().frame(width: 40, height: 40)
                 } else {
                     Button { player.toggle() } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 40, height: 40)
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3).contentTransition(.symbolEffect(.replace)).frame(width: 40, height: 40)
                     }
                 }
                 Button { player.next() } label: { Image(systemName: "forward.fill").font(.title3).frame(width: 40, height: 40) }
@@ -139,7 +139,7 @@ struct MiniPlayer: View {
             .padding(8)
             .overlay(alignment: .bottom) {
                 GeometryReader { g in
-                    Capsule().fill(Theme.accentGradient)
+                    Capsule().fill(Theme.text)
                         .frame(width: g.size.width * (clock.duration > 0 ? min(1, clock.time / clock.duration) : 0), height: 2)
                 }.frame(height: 2).padding(.horizontal, 14)
             }
