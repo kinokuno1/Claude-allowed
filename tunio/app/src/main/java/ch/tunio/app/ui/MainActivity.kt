@@ -196,6 +196,7 @@ private fun App() {
     val queue by PlayerController.queue.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val scanning by QrScan.open.collectAsState()
     var onboarded by remember { mutableStateOf(Onboarding.done(context)) }
     // Two light sources for the glass: the background light (for glass inside screens) and the whole
     // screen incl. scrolling content (for the floating bars, so you see content bend as it passes under).
@@ -208,7 +209,7 @@ private fun App() {
     LaunchedEffect(Unit) {
         PlayerController.messages.collect { snackbar.showSnackbar(it) }
     }
-    BackHandler(enabled = onboarded && (playerOpen || stack.size > 1 || route != Route.Home)) { Ui.back() }
+    BackHandler(enabled = onboarded && !scanning && (playerOpen || stack.size > 1 || route != Route.Home)) { Ui.back() }
 
     // Height of the floating bars, so screens can scroll their last items out from under them.
     val chromeHeight = 64.dp + 16.dp + (if (hasPlayer) 68.dp else 0.dp)
@@ -284,6 +285,8 @@ private fun App() {
                 onboarded = true
             }
         }
+        // In-app QR scanner for the home server, above everything (setup included).
+        QrScannerOverlay()
     }
 }
 

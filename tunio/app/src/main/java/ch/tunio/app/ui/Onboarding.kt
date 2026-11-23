@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,7 +103,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             .fillMaxSize()
             .background(Bg)
             .background(Brush.verticalGradient(0f to GlowColor.copy(alpha = 0.7f), 0.5f to Color.Transparent))
-            .clickable(enabled = false) {},
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
     ) {
         AnimatedContent(
             targetState = step,
@@ -207,10 +208,9 @@ private fun ColumnScope.ServerStep(onPick: (String) -> Unit, onType: () -> Unit,
                     }
                 }
             }
-            Option(
-                Icons.Rounded.QrCodeScanner, "Scan its QR code",
-                "Open your camera (or Google Lens), point it at the QR code the installer showed, open the link, then tap “Connect Tunio”.",
-            ) {}
+            Option(Icons.Rounded.QrCodeScanner, "Scan its QR code", "Opens the camera. Point it at the QR code the installer showed, or the one you printed.") {
+                QrScan.open.value = true
+            }
             Option(Icons.Rounded.Keyboard, "Type its address", "For example 192.168.1.20, its Tailscale address, or your own https address.", onType)
         }
     }

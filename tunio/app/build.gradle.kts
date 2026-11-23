@@ -96,6 +96,14 @@ dependencies {
     implementation("androidx.media3:media3-database:1.5.1")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    // In-app QR scanner for pairing the home server: CameraX preview + ML Kit (bundled model, works without Play services).
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("androidx.camera:camera-mlkit-vision:1.4.2")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     // Liquid glass: refracts (lens), blurs and tints what's behind it (Kyant0/AndroidLiquidGlass).
     // Refraction needs Android 13+, blur Android 12+; older phones get a frosted fallback.
     implementation("io.github.kyant0:backdrop:1.0.6")

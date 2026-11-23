@@ -813,6 +813,13 @@ private fun HomeServerGroup() {
     var password by remember { mutableStateOf(HomeServer.password) }
     var message by remember { mutableStateOf<String?>(null) }
     var searching by remember { mutableStateOf(false) }
+    // A scanned QR code fills in the fields.
+    LaunchedEffect(state) {
+        if (state is HomeServer.State.Online) {
+            address = HomeServer.address.removeSuffix(":${HomeServer.DEFAULT_PORT}").removePrefix("http://")
+            password = HomeServer.password
+        }
+    }
     val (statusText, statusColor) = when (val s = state) {
         is HomeServer.State.Online -> "Online · ${s.songs} songs kept" to Good
         HomeServer.State.Checking -> "Checking…" to Muted
@@ -838,6 +845,11 @@ private fun HomeServerGroup() {
                 message = "Checking…"
                 scope.launch { message = HomeServer.test() }
             }.padding(16.dp),
+        )
+        GroupDivider()
+        Text(
+            "Scan its QR code", color = AccentLight, fontSize = 16.sp,
+            modifier = Modifier.fillMaxWidth().clickable { message = null; QrScan.open.value = true }.padding(16.dp),
         )
         GroupDivider()
         Text(
