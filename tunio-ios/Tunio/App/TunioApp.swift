@@ -44,6 +44,11 @@ struct RootView: View {
         .overlay(alignment: .top) { toast }
         .onChange(of: player.message) { _, m in if let m { ui.toast = m; player.message = nil } }
         .onOpenURL(perform: open)
+        .task {
+            // automated tests: Tunio --open tunio://search?q=…
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "--open"), i + 1 < args.count, let u = URL(string: args[i + 1]) { open(u) }
+        }
         .onChange(of: downloads.lastError) { _, m in if let m { ui.toast = m; downloads.lastError = nil } }
     }
 

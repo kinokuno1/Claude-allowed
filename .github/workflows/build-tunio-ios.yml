@@ -63,8 +63,8 @@ jobs:
           shot() { xcrun simctl io "$DEV" screenshot "shots/$1.png" >/dev/null 2>&1; sips -Z 900 -s format jpeg -s formatOptions 70 "shots/$1.png" --out "shots/$1.jpg" >/dev/null; rm "shots/$1.png"; }
           mkdir -p shots
           xcrun simctl launch "$DEV" ch.tunio.ios; sleep 10; shot 1-home
-          xcrun simctl openurl "$DEV" "tunio://search?q=daft%20punk%20get%20lucky"; sleep 12; shot 2-search
-          xcrun simctl openurl "$DEV" "tunio://play?q=daft%20punk%20get%20lucky"; sleep 25; shot 3-player
+          xcrun simctl terminate "$DEV" ch.tunio.ios; xcrun simctl launch "$DEV" ch.tunio.ios --open "tunio://search?q=daft%20punk%20get%20lucky"; sleep 14; shot 2-search
+          xcrun simctl terminate "$DEV" ch.tunio.ios; xcrun simctl launch "$DEV" ch.tunio.ios --open "tunio://play?q=daft%20punk%20get%20lucky"; sleep 30; shot 3-player
           xcrun simctl spawn "$DEV" log show --last 4m --style compact --predicate 'process == "Tunio"' 2>/dev/null | tail -300 > shots/app-log.txt || true
           (xcrun simctl spawn "$DEV" launchctl list | grep -i tunio && echo "Tunio is still running") >> shots/app-log.txt || echo "Tunio is NOT running" >> shots/app-log.txt
           tail -5 shots/app-log.txt
