@@ -685,18 +685,31 @@ const Lyrics = (() => {
     });
     underline(box, spans[at]);
   }
-  /** The line under the word being sung: it slides to each next word (CSS does the gliding). */
-  let ulFor = null;
+  /** The line under the word being sung. It glides along to the next word on the same row of text; when the
+   *  next word is on another row (or another lyric line) it doesn't travel across the text: it appears there. */
+  let ulFor = null, ulRow = null;
+  function wordBox(sp) {
+    // the word itself (not the space after it), on the row where it ends if it wraps
+    const node = sp.firstChild, len = node?.textContent.trimEnd().length || 0;
+    let rects = [];
+    if (node && node.nodeType === 3 && len) { const r = document.createRange(); r.setStart(node, 0); r.setEnd(node, len); rects = [...r.getClientRects()]; }
+    if (!rects.length) rects = [...sp.getClientRects()];
+    return rects[rects.length - 1] || sp.getBoundingClientRect();
+  }
   function underline(box, sp) {
     let ul = box.querySelector(".uline");
-    if (!ul) { ul = document.createElement("i"); ul.className = "uline"; box.append(ul); ulFor = null; }
-    if (!sp) { ul.classList.remove("on"); ulFor = null; return; }
+    if (!ul) { ul = document.createElement("i"); ul.className = "uline"; box.append(ul); ulFor = null; ulRow = null; }
+    if (!sp) { ul.classList.remove("on"); ulFor = null; ulRow = null; return; }
     if (sp === ulFor) return;
     ulFor = sp;
-    const txt = sp.textContent, word = txt.trimEnd().length || txt.length; // don't underline the space after it
-    const w = sp.offsetWidth * word / Math.max(1, txt.length);
-    ul.style.transform = `translate(${sp.offsetLeft + 2}px, ${sp.offsetTop + sp.offsetHeight - 4}px)`;
-    ul.style.width = `${Math.max(8, w - 4)}px`;
+    const b = box.getBoundingClientRect(), r = wordBox(sp);
+    const x = r.left - b.left, y = r.bottom - b.top + 1, row = `${sp.closest(".ly-line")?.dataset.t}|${Math.round(y)}`;
+    const jump = !ul.classList.contains("on") || row !== ulRow;
+    ulRow = row;
+    if (jump) { ul.style.transition = "none"; ul.classList.remove("on"); }
+    ul.style.transform = `translate(${x}px, ${y}px)`;
+    ul.style.width = `${Math.max(8, r.width)}px`;
+    if (jump) { void ul.offsetWidth; ul.style.transition = ""; }
     ul.classList.add("on");
   }
   /** Smooth, slow scroll (the browser's own "smooth" is short and abrupt). */
