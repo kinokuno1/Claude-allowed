@@ -23,6 +23,7 @@ struct RootView: View {
     @ObservedObject private var player = Player.shared
     @ObservedObject private var downloads = Downloads.shared
     @State private var tab = 0
+    @AppStorage("onboarded") private var onboarded = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -37,6 +38,7 @@ struct RootView: View {
                 .tabItem { Label("Library", systemImage: tab == 2 ? "books.vertical.fill" : "books.vertical") }.tag(2)
         }
         .background(Theme.c60)
+        .overlay { if !onboarded { OnboardingView().transition(.opacity) } }
         .fullScreenCover(isPresented: $ui.showPlayer) { PlayerView() }
         .sheet(isPresented: Binding(get: { ui.addToPlaylist != nil }, set: { if !$0 { ui.addToPlaylist = nil } })) {
             AddToPlaylistSheet(tracks: ui.addToPlaylist ?? []).presentationDetents([.medium, .large])

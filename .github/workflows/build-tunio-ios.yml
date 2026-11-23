@@ -62,7 +62,9 @@ jobs:
           xcrun simctl install "$DEV" simbuild/Build/Products/Release-iphonesimulator/Tunio.app
           shot() { xcrun simctl io "$DEV" screenshot "shots/$1.png" >/dev/null 2>&1; sips -Z 900 -s format jpeg -s formatOptions 70 "shots/$1.png" --out "shots/$1.jpg" >/dev/null; rm "shots/$1.png"; }
           mkdir -p shots
-          xcrun simctl launch "$DEV" ch.tunio.ios; sleep 10; shot 1-home
+          xcrun simctl launch "$DEV" ch.tunio.ios; sleep 10; shot 0-setup
+          xcrun simctl terminate "$DEV" ch.tunio.ios; xcrun simctl spawn "$DEV" defaults write ch.tunio.ios onboarded -bool YES
+          xcrun simctl launch "$DEV" ch.tunio.ios; sleep 8; shot 1-home
           xcrun simctl terminate "$DEV" ch.tunio.ios; xcrun simctl launch "$DEV" ch.tunio.ios --open "tunio://search?q=daft%20punk%20get%20lucky"; sleep 14; shot 2-search
           xcrun simctl terminate "$DEV" ch.tunio.ios; xcrun simctl launch "$DEV" ch.tunio.ios --open "tunio://play?q=daft%20punk%20get%20lucky"; sleep 30; shot 3-player
           xcrun simctl spawn "$DEV" log show --last 4m --style compact --predicate 'process == "Tunio"' 2>/dev/null | tail -300 > shots/app-log.txt || true
