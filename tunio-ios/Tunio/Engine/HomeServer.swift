@@ -32,8 +32,10 @@ final class HomeServer: ObservableObject {
 
     func configure(address a: String, password p: String) {
         var a = a.trimmingCharacters(in: .whitespaces)
+        while a.hasSuffix("/") { a.removeLast() }
         if !a.isEmpty && !a.contains("://") { a = "http://" + a }
-        if !a.isEmpty, URL(string: a)?.port == nil, a.filter({ $0 == ":" }).count < 2 { a += ":8484" }
+        // the Pi's own port for plain http; an https address (e.g. a DuckDNS name behind Caddy) keeps port 443
+        if !a.isEmpty, a.hasPrefix("http://"), URL(string: a)?.port == nil, a.filter({ $0 == ":" }).count < 2 { a += ":8484" }
         address = a; password = p.trimmingCharacters(in: .whitespaces); enabled = true
         Task { await check(force: true) }
     }

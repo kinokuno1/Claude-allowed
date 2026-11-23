@@ -90,15 +90,22 @@ object HomeServer {
         refresh()
     }
 
-    /** "192.168.1.20" -> "http://192.168.1.20:8484" (also accepts names like "tunio" or full addresses). */
+    /**
+     * "192.168.1.20" -> "http://192.168.1.20:8484" (also accepts names like "tunio" or full addresses).
+     * An https address without a port (e.g. a DuckDNS name behind Caddy) keeps the standard HTTPS port.
+     */
     fun normalize(input: String): String {
         var s = input.trim().trimEnd('/')
         if (s.isEmpty()) return ""
         if (!s.startsWith("http://") && !s.startsWith("https://")) s = "http://$s"
         val uri = Uri.parse(s)
         val host = uri.host ?: return s
-        val port = if (uri.port > 0) uri.port else DEFAULT_PORT
-        return "${uri.scheme}://$host:$port"
+        val hostPart = if (host.contains(':')) "[$host]" else host
+        return when {
+            uri.port > 0 -> "${uri.scheme}://$hostPart:${uri.port}"
+            uri.scheme == "https" -> "https://$hostPart"
+            else -> "${uri.scheme}://$hostPart:$DEFAULT_PORT"
+        }
     }
 
     fun configure(addressInput: String, passwordInput: String) {
