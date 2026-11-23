@@ -28,6 +28,9 @@ import android.net.NetworkCapabilities
 import ch.tunio.app.engine.AudioStore
 import ch.tunio.app.engine.Engine
 import ch.tunio.app.engine.HomeServer
+import ch.tunio.app.engine.Jam
+import ch.tunio.app.engine.JamState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -100,7 +103,7 @@ object PlayerController {
         val idx = exo.currentMediaItemIndex
         val remaining = exo.mediaItemCount - idx - 1
         val seed = current ?: return
-        if (autoplay.value && remaining <= 3 && repeat.value == RepeatMode.OFF && autoplayJob?.isActive != true) {
+        if (autoplay.value && !Jam.active && remaining <= 3 && repeat.value == RepeatMode.OFF && autoplayJob?.isActive != true) {
             autoplayJob = scope.launch {
                 val queued = queue.value
                 val recent = Library.tracks(Library.data.value.recent.take(30))
@@ -118,6 +121,7 @@ object PlayerController {
 
     private fun preloadNext() {
         if (preloadJob?.isActive == true) return
+        if (Jam.active && !Jam.isHost) return // the Jam's server fetches the next songs ahead for guests
         val upcoming = queue.value.drop(exo.currentMediaItemIndex + 1).take(2)
             .filter { AudioStore.localFile(it) == null && !StreamCache.isFullyCached(it.id) }
         if (upcoming.isEmpty()) return
@@ -166,11 +170,22 @@ object PlayerController {
                 if (playing) failuresInARow = 0
             }
 
-            override fun onPlaybackStateChanged(state: Int) = refreshState()
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = refreshState()
+            override fun onPlaybackStateChanged(state: Int) {
+                refreshState()
+                // The host's queue ran out: tell the Jam (songs added later start playing).
+                if (state == Player.STATE_ENDED && Jam.isHost && !following) Jam.state.value?.current?.let { Jam.next(it.qid) }
+            }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                refreshState()
+                lastReport = 0L // the host reports a pause / play right away
+            }
             override fun onTimelineChanged(timeline: Timeline, reason: Int) = syncQueue()
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // The host's song ended and the next one started: the Jam moves on too (once).
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && Jam.isHost && !following) {
+                    Jam.state.value?.current?.takeIf { it.id != mediaItem?.mediaId }?.let { Jam.next(it.qid) }
+                }
                 syncQueue()
                 current?.let { Library.addRecent(it) }
                 onQueuePosition()
@@ -192,6 +207,11 @@ object PlayerController {
                 }
                 messages.tryEmit("Couldn't play \"${t?.title ?: "song"}\": ${fetch?.message ?: error.errorCodeName}")
                 failuresInARow++
+                if (Jam.isHost) { // the Jam skips it for everyone
+                    Jam.state.value?.current?.let { Jam.next(it.qid) }
+                    refreshState()
+                    return
+                }
                 if (failuresInARow < 3 && exo.hasNextMediaItem()) {
                     exo.seekToNextMediaItem()
                     exo.prepare()
@@ -200,6 +220,7 @@ object PlayerController {
                 refreshState()
             }
         })
+        startFollowingJams()
     }
 
     /** Runs on ExoPlayer's loading thread: turns tunio://track/<id> into a local file (blocking). */
@@ -215,7 +236,11 @@ object PlayerController {
             return spec.buildUpon().setUri(Uri.parse("https://cached.invalid/${track.id}")).setKey(track.id).build()
         }
         try {
-            // 3. Ask yt-dlp for the audio URL and start streaming immediately (cached while it plays).
+            // In a Jam, playing along: the Jam's server streams it (it fetched it ahead).
+        Jam.audioFor(track.id)?.let { j ->
+            return spec.buildUpon().setUri(Uri.parse(j.url)).setKey(j.cacheKey).build()
+        }
+        // 3. Ask yt-dlp for the audio URL and start streaming immediately (cached while it plays).
             val stream = runBlocking { AudioStore.stream(track) }
             if (stream != null) {
                 return spec.buildUpon()
@@ -262,6 +287,7 @@ object PlayerController {
 
     fun play(tracks: List<Track>, start: Int = 0, shuffled: Boolean = shuffle.value) {
         if (tracks.isEmpty()) return
+        if (Jam.active) return Jam.add(listOf(tracks[start.coerceIn(tracks.indices)])) // in a Jam, a tapped song joins the queue
         val s = start.coerceIn(tracks.indices)
         shuffle.value = shuffled
         val list: List<Track>
@@ -283,23 +309,27 @@ object PlayerController {
     }
 
     fun playNext(track: Track) {
+        if (Jam.active) return Jam.add(listOf(track), next = true)
         if (exo.mediaItemCount == 0) return play(listOf(track))
         exo.addMediaItem(exo.currentMediaItemIndex + 1, item(track))
         messages.tryEmit("Plays next: ${track.title}")
     }
 
     fun addToQueue(track: Track) {
+        if (Jam.active) return Jam.add(listOf(track))
         if (exo.mediaItemCount == 0) return play(listOf(track))
         exo.addMediaItem(item(track))
         messages.tryEmit("Added to queue: ${track.title}")
     }
 
     fun removeFromQueue(i: Int) {
+        if (Jam.active) { Jam.state.value?.queue?.getOrNull(i)?.let { Jam.remove(it.qid) }; return }
         if (i == exo.currentMediaItemIndex || i !in 0 until exo.mediaItemCount) return
         exo.removeMediaItem(i)
     }
 
     fun jumpTo(i: Int) {
+        if (Jam.active) { Jam.state.value?.queue?.getOrNull(i)?.let { Jam.jump(it.qid) }; return }
         if (i !in 0 until exo.mediaItemCount) return
         exo.seekToDefaultPosition(i)
         if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
@@ -307,6 +337,7 @@ object PlayerController {
     }
 
     fun togglePlay() {
+        if (Jam.active) { Jam.state.value?.let { Jam.setPlaying(!it.playing) }; return }
         if (exo.mediaItemCount == 0) return
         when {
             exo.playbackState == Player.STATE_IDLE -> { exo.prepare(); exo.play() }
@@ -316,9 +347,13 @@ object PlayerController {
         }
     }
 
-    fun seekTo(ms: Long) = exo.seekTo(ms)
+    fun seekTo(ms: Long) {
+        if (Jam.active) Jam.seek(ms / 1000.0)
+        if (!Jam.active || Jam.playsHere) exo.seekTo(ms)
+    }
 
     fun next() {
+        if (Jam.active) return Jam.next()
         if (exo.hasNextMediaItem()) exo.seekToNextMediaItem()
         else if (exo.mediaItemCount > 0) exo.seekToDefaultPosition(0)
         if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
@@ -326,6 +361,7 @@ object PlayerController {
     }
 
     fun previous() {
+        if (Jam.active) return Jam.previous()
         if (exo.currentPosition > 3000 || !exo.hasPreviousMediaItem()) exo.seekTo(0)
         else exo.seekToPreviousMediaItem()
         if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
@@ -356,6 +392,97 @@ object PlayerController {
         exo.removeMediaItems(0, cur)
         exo.addMediaItems(0, newOrder.subList(0, newIndex))
         exo.addMediaItems(newOrder.subList(newIndex + 1, newOrder.size))
+    }
+
+    // ---------------------------------------------------------------- Jam
+
+    /** True while the player is being changed to follow the Jam (so those changes aren't sent back). */
+    private var following = false
+    private var lastReport = 0L
+    private var lastCorrection = 0L
+
+    /** This phone plays the Jam's music when it's the host, or a guest playing along. */
+    private fun startFollowingJams() {
+        Jam.onState = { old, new -> scope.launch { followJam(old, new) } }
+        scope.launch {
+            Jam.playAlong.collect { on ->
+                if (!on && Jam.active && !Jam.isHost) exo.pause() else followJam(null, Jam.state.value)
+            }
+        }
+        scope.launch {
+            while (true) {
+                delay(1000)
+                runCatching { jamTick() }
+            }
+        }
+    }
+
+    private fun followJam(old: JamState?, new: JamState?) {
+        if (new == null || !Jam.playsHere) {
+            // a guest joined (the music plays on the host's phone), or left: this phone goes quiet
+            val guestJoined = new != null && old == null
+            val guestLeft = new == null && old != null && old.you?.host != true
+            if ((guestJoined || guestLeft) && exo.playWhenReady) exo.pause()
+            return
+        }
+        val cur = new.current
+        following = true
+        try {
+            if (cur == null) { // nothing playing (the end of the queue)
+                if (exo.playWhenReady) exo.pause()
+                return
+            }
+            val want = new.queue.map { it.toTrack() }
+            val have = (0 until exo.mediaItemCount).map { exo.getMediaItemAt(it).mediaId }
+            val expectedMs = (Jam.expectedPosition(new) * 1000).toLong()
+            val sameList = have == want.map { it.id }
+            when {
+                sameList && exo.currentMediaItemIndex == new.index -> {
+                    // same song: only a real jump (someone seeked) moves it
+                    if (kotlin.math.abs(exo.currentPosition - expectedMs) > if (Jam.isHost) 2500 else 1200) exo.seekTo(expectedMs)
+                }
+                sameList -> exo.seekTo(new.index, expectedMs)
+                exo.mediaItemCount > 0 && exo.currentMediaItem?.mediaId == cur.id && (old?.current?.qid == cur.qid || old == null) -> {
+                    // the queue changed around the song playing: replace the rest, the song keeps playing
+                    val at = exo.currentMediaItemIndex
+                    exo.removeMediaItems(at + 1, exo.mediaItemCount)
+                    exo.removeMediaItems(0, at)
+                    exo.addMediaItems(0, want.subList(0, new.index).map(::item))
+                    exo.addMediaItems(want.subList(new.index + 1, want.size).map(::item))
+                }
+                else -> {
+                    exo.setMediaItems(want.map(::item), new.index, expectedMs)
+                    exo.prepare()
+                }
+            }
+            if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
+            if (new.playing && !exo.playWhenReady) exo.play()
+            if (!new.playing && exo.playWhenReady) exo.pause()
+        } finally {
+            following = false
+            syncQueue()
+        }
+    }
+
+    /** Every second: the host tells the Jam where it really is; guests playing along fix their drift. */
+    private fun jamTick() {
+        val s = Jam.state.value ?: return
+        if (!Jam.playsHere) return
+        val cur = s.current ?: return
+        if (exo.currentMediaItem?.mediaId != cur.id) return
+        val now = System.currentTimeMillis()
+        if (Jam.isHost) {
+            if (now - lastReport > 10_000) {
+                lastReport = now
+                Jam.report(cur.qid, exo.currentPosition / 1000.0, exo.playWhenReady)
+            }
+        } else if (s.playing && exo.isPlaying && now - lastCorrection > 3000) {
+            val drift = exo.currentPosition - (Jam.expectedPosition(s) * 1000).toLong()
+            if (kotlin.math.abs(drift) > 350) {
+                lastCorrection = now
+                exo.seekTo((Jam.expectedPosition(s) * 1000).toLong())
+            }
+        }
     }
 
     fun cycleRepeat() {

@@ -325,6 +325,7 @@ fun NowPlayingScreen() {
                     Text("Home server", color = Muted, fontSize = 12.sp)
                 }
                 Spacer(Modifier.weight(1f))
+                JamButton()
                 RoundIcon(Icons.AutoMirrored.Rounded.QueueMusic, "Queue", 44.dp, 24.dp, tint = if (panel == Panel.QUEUE) AccentLight else TextPrimary) {
                     panel = if (panel == Panel.QUEUE) Panel.COVER else Panel.QUEUE
                 }

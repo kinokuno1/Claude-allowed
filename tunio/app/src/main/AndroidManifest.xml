@@ -46,6 +46,8 @@
                 <data android:scheme="tunio" android:host="open" />
                 <!-- "Connect Tunio" on the home server's page: tunio://pair?u=...&k=... -->
                 <data android:scheme="tunio" android:host="pair" />
+                <!-- A shared Jam link: tunio://jam?u=<server>&j=<id> -->
+                <data android:scheme="tunio" android:host="jam" />
             </intent-filter>
         </activity>
 

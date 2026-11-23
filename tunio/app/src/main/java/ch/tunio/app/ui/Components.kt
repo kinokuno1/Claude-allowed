@@ -370,8 +370,9 @@ fun TrackMenu(track: Track, playlistId: String? = null, tint: Color = Muted) {
             containerColor = MenuBg,
             border = BorderStroke(1.dp, Glass.rim),
         ) {
-            MenuItem("Play next", Icons.Rounded.SkipNext) { open = false; PlayerController.playNext(track) }
-            MenuItem("Add to queue", Icons.AutoMirrored.Rounded.QueueMusic) { open = false; PlayerController.addToQueue(track) }
+            val inJam = ch.tunio.app.engine.Jam.active
+            MenuItem(if (inJam) "Play next in the Jam" else "Play next", Icons.Rounded.SkipNext) { open = false; PlayerController.playNext(track) }
+            MenuItem(if (inJam) "Add to the Jam" else "Add to queue", Icons.AutoMirrored.Rounded.QueueMusic) { open = false; PlayerController.addToQueue(track) }
             MenuItem(if (liked) "Remove from Liked" else "Like", if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder) {
                 open = false; Library.toggleLike(track)
             }

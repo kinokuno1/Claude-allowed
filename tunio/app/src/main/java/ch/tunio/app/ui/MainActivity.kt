@@ -150,6 +150,14 @@ class MainActivity : ComponentActivity() {
             }
             return
         }
+        if (intent?.action == Intent.ACTION_VIEW && data?.scheme == "tunio" && data.host == "jam") {
+            // A shared Jam link: tunio://jam?u=<server>&j=<id>
+            intent.data = null
+            ch.tunio.app.engine.Jam.parseLink(data.toString())?.let { (srv, id) ->
+                lifecycleScope.launch { ch.tunio.app.engine.Jam.openLink(srv, id) }
+            }
+            return
+        }
         if (intent?.action == Intent.ACTION_VIEW && data?.scheme == "tunio" && data.host == "spotify-callback") {
             intent.data = null // don't handle twice on rotation
             lifecycleScope.launch {
@@ -159,6 +167,11 @@ class MainActivity : ComponentActivity() {
         }
         if (intent?.action == Intent.ACTION_SEND) {
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+            // A Jam link shared into Tunio
+            ch.tunio.app.engine.Jam.parseLink(text)?.let { (srv, id) ->
+                lifecycleScope.launch { ch.tunio.app.engine.Jam.openLink(srv, id) }
+                return
+            }
             if (SpotifyAccount.pastedCallback(text) != null) {
                 lifecycleScope.launch { onSpotifyLogin(SpotifyAccount.finishFromPaste(text)) }
                 return
@@ -197,6 +210,7 @@ private fun App() {
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     val scanning by QrScan.open.collectAsState()
+    val jamOpen by JamUi.open.collectAsState()
     var onboarded by remember { mutableStateOf(Onboarding.done(context)) }
     // Two light sources for the glass: the background light (for glass inside screens) and the whole
     // screen incl. scrolling content (for the floating bars, so you see content bend as it passes under).
@@ -207,9 +221,10 @@ private fun App() {
     val hasPlayer = queue.isNotEmpty()
 
     LaunchedEffect(Unit) {
+        launch { ch.tunio.app.engine.Jam.messages.collect { snackbar.showSnackbar(it) } }
         PlayerController.messages.collect { snackbar.showSnackbar(it) }
     }
-    BackHandler(enabled = onboarded && !scanning && (playerOpen || stack.size > 1 || route != Route.Home)) { Ui.back() }
+    BackHandler(enabled = onboarded && !scanning && !jamOpen && (playerOpen || stack.size > 1 || route != Route.Home)) { Ui.back() }
 
     // Height of the floating bars, so screens can scroll their last items out from under them.
     val chromeHeight = 64.dp + 16.dp + (if (hasPlayer) 68.dp else 0.dp)
@@ -264,6 +279,7 @@ private fun App() {
                     modifier = Modifier.border(1.dp, Glass.rim, RoundedCornerShape(20.dp)),
                 )
             }
+            JamBar()
             MiniPlayer(screenBackdrop)
             if (hasPlayer) Spacer(Modifier.height(8.dp))
             GlassTabBar(screenBackdrop, tab)
@@ -285,6 +301,8 @@ private fun App() {
                 onboarded = true
             }
         }
+        // Listening together: start / join / the shared queue.
+        JamOverlay()
         // In-app QR scanner for the home server, above everything (setup included).
         QrScannerOverlay()
     }
