@@ -20,6 +20,7 @@ from .core import Track
 from .library import Library
 from .artwork import Artwork
 from .lyrics import Lyrics
+from .wordsync import WordSync
 
 # In Tunio.exe the UI files are unpacked next to this module (PyInstaller --add-data ...;tunio_desktop/web).
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -38,6 +39,7 @@ class Api:
         self.lyrics = lyrics
         from .paths import CACHE_DIR
         self.art = Artwork(os.path.join(CACHE_DIR, "artwork.json"))
+        self.words = WordSync(os.path.join(CACHE_DIR, "lyrics"))
         self._art_busy = threading.Lock()
 
     def refresh_artwork(self, broken: dict[str, str] | None = None):
@@ -70,7 +72,7 @@ class Api:
         if path == "resolve":
             return engine.resolve(body["text"]).to_dict()
         if path == "prepare":
-            return self.prepare(Track.from_dict(body["track"]), prefetch=bool(body.get("prefetch")))
+            return self.prepare(Track.from_dict(body["track"]), prefetch=bool(body.get("prefetch")), retry=bool(body.get("retry")))
         if path == "artwork":  # covers for songs on screen (e.g. a Spotify playlist being imported)
             tracks = _tracks(body)[:24]
             art = self.art.many(tracks)
@@ -81,6 +83,9 @@ class Api:
             return {"ok": True}
         if path == "lyrics":
             return self.lyrics.get(Track.from_dict(body["track"]))
+        if path == "lyrics/words":  # only when Word or 3D mode is on
+            t = Track.from_dict(body["track"])
+            return self.words.get(t, self.lyrics.get(t))
         if path == "similar":
             sim = engine.similar(Track.from_dict(body["track"]), _tracks(body, "exclude"), int(body.get("max", 10)))
             return {"tracks": [t.to_dict() for t in sim]}
@@ -116,12 +121,16 @@ class Api:
             raise KeyError(path)
         return {"ok": True}
 
-    def prepare(self, t: Track, prefetch: bool = False) -> dict:
+    def prepare(self, t: Track, prefetch: bool = False, retry: bool = False) -> dict:
         """Where the player should load the song from: a local file, a live stream, or (fallback) a fresh download.
         prefetch=True warms up the next song in the queue (not added to "Recently played")."""
         if not prefetch:
             self.lib.add_recent(t)
         if self.lib.local_file(t):
+            return {"src": f"/audio/{t.id}", "kind": "file"}
+        if retry:  # the stream didn't start: fetch the whole song instead (slower, but it always works)
+            self.lib.forget_stream(t.id)
+            self.lib.ensure(t)
             return {"src": f"/audio/{t.id}", "kind": "file"}
         info = self.lib.stream(t)
         if info:

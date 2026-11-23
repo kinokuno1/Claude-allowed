@@ -322,8 +322,10 @@ kbd { font: 12px/1 inherit; padding: 3px 6px; border-radius: 4px; background: va
 .np-sec .panel-head { padding: clamp(10px, 4cqi, 14px) 10px 6px clamp(12px, 5cqi, 16px); flex: none; }
 .np-sec .panel-head h2 { font-size: clamp(13px, 4.8cqi, 16px); }
 #np-song { --pad: clamp(10px, 5cqi, 18px); --tfs: clamp(15px, 7cqi, 28px); --afs: clamp(12px, 4.4cqi, 15px); }
-.np-songbody { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; padding: 0 var(--pad) var(--pad); }
-.np-cover { --size: max(48px, min(calc(100cqi - 2 * var(--pad)), calc(100cqh - 46px - var(--tfs) * 2.6 - var(--afs) * 1.6 - var(--pad) * 2.4)));
+.np-songbody { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 var(--pad) var(--pad); }
+.np-top { flex: none; display: flex; flex-direction: column; align-items: center; width: 100%; }
+.np-ly { flex: 1; min-height: 90px; display: flex; width: 100%; margin-top: calc(var(--pad) * .8); border-radius: 10px; overflow: hidden; container-type: size; }
+.np-cover { --size: max(48px, min(calc(100cqi - 2 * var(--pad)), calc(56cqh - 46px - var(--tfs) * 2.6 - var(--afs) * 1.6 - var(--pad) * 2.4)));
   width: var(--size); height: var(--size); flex: none; border-radius: clamp(6px, 3cqi, 10px); overflow: hidden; background: var(--c30-hi);
   position: relative; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
 .np-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -468,3 +470,95 @@ kbd { font: 12px/1 inherit; padding: 3px 6px; border-radius: 4px; background: va
 .ly-msg { font-size: 26px; font-weight: 800; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .ly-msg .small { font-size: 15px; font-weight: 500; color: rgba(255,255,255,.8); }
 .ly-credit { text-align: center; font-size: 12px; color: rgba(255,255,255,.72); margin: -38vh 0 0; padding-bottom: 40px; }
+
+/* ------------------------------------------------------------------ like heart: fills from the inside in 10 frames, then pops */
+.heart .ho { fill: currentColor; }
+.heart .hf { fill: var(--pink-light); transform-box: view-box; transform-origin: 12px 12.5px; transform: scale(0); }
+.heart.on .hf { transform: scale(1); }
+.heart.on .ho { fill: var(--pink-light); }
+.heart.pop .hf { animation: heart-fill .32s steps(10, jump-end) both; }
+.heart.pop { animation: heart-pop .42s cubic-bezier(.3, 1.6, .5, 1) .25s both; transform-origin: center; }
+.heart.unpop { animation: heart-out .25s ease-out; transform-origin: center; }
+@keyframes heart-fill { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes heart-pop { 0% { transform: scale(1); } 45% { transform: scale(1.32); } 100% { transform: scale(1); } }
+@keyframes heart-out { 0% { transform: scale(1); } 40% { transform: scale(.82); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .heart.pop, .heart.pop .hf, .heart.unpop { animation: none; } }
+
+/* ------------------------------------------------------------------ lyrics view: toolbar */
+.ly-song { display: flex; align-items: center; gap: 12px; padding: 4px 10px 4px 4px; border-radius: 12px; min-width: 0; max-width: 46%; text-align: left; }
+.ly-song:hover { background: rgba(255,255,255,.1); }
+.ly-song .art { width: 44px; height: 44px; border-radius: 8px; }
+.ly-song .t { font-weight: 700; font-size: 15px; }
+.ly-song .a { font-size: 13px; color: rgba(255,255,255,.78); }
+.lyc { view-transition-name: ly-cover; }
+.lyt { view-transition-name: ly-title; }
+::view-transition-group(ly-cover), ::view-transition-group(ly-title) { animation-duration: .55s; animation-timing-function: cubic-bezier(.2, .85, .2, 1); }
+.seg { display: flex; padding: 3px; border-radius: 999px; background: rgba(255,255,255,.12); }
+.seg button { padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,.85); transition: background .2s, color .2s; }
+.seg button.on { background: #fff; color: #111; }
+.pill3d { height: 34px; padding: 0 14px; border-radius: 999px; font-weight: 900; font-size: 13px; letter-spacing: .04em; color: #fff;
+  background: rgba(255,255,255,.12); transition: background .2s, transform .2s; }
+.pill3d:hover { transform: scale(1.05); }
+.pill3d.on { background: var(--c10-grad); box-shadow: 0 0 18px rgba(212,51,127,.55); }
+
+/* ------------------------------------------------------------------ lyrics view: big player card */
+.ly-big { position: absolute; z-index: 2; left: clamp(16px, 4cqi, 56px); top: 50%; transform: translateY(-46%); width: clamp(230px, 28cqi, 360px);
+  padding: 16px; border-radius: 22px; background: rgba(20, 18, 28, .45); border: 1px solid rgba(255,255,255,.16);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); box-shadow: 0 30px 80px rgba(0,0,0,.45); }
+.bc-cover { position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: var(--c30-hi); display: grid; place-items: center; }
+.bc-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bc-like { position: absolute; right: 10px; top: 10px; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.25); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.bc-like svg { width: 22px; height: 22px; }
+.bc-ctrls { display: flex; justify-content: space-between; margin: 16px 2px 10px; }
+.bc-ctrls button { width: clamp(34px, 3.4cqi, 44px); height: clamp(34px, 3.4cqi, 44px); border-radius: 12px; display: grid; place-items: center; color: #fff;
+  border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.06); transition: background .15s, transform .15s; }
+.bc-ctrls button:hover { background: rgba(255,255,255,.16); transform: translateY(-1px); }
+.bc-ctrls button.on { color: var(--c10-light); border-color: var(--c10-light); }
+.bc-ctrls svg { width: 20px; height: 20px; }
+.bc-prog { display: flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 700; color: rgba(255,255,255,.75); font-variant-numeric: tabular-nums; }
+.bc-bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.22); cursor: pointer; position: relative; }
+.bc-bar::before { content: ""; position: absolute; inset: -8px 0; }
+.bc-bar i { display: block; height: 100%; width: 0; border-radius: 2px; background: #fff; }
+.bc-bar:hover i { background: var(--c10-grad); }
+.bc-title { display: block; width: 100%; text-align: center; margin-top: 14px; padding: 4px; border-radius: 10px; }
+.bc-title:hover { background: rgba(255,255,255,.08); }
+.bc-title .t { font-size: clamp(16px, 1.9cqi, 22px); font-weight: 900; letter-spacing: .01em; text-transform: uppercase; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.bc-title .a { font-size: 13px; font-weight: 700; color: rgba(255,255,255,.75); margin-top: 2px; }
+.ly-wrap.with-card .ly-scroll { padding-left: calc(clamp(230px, 28cqi, 360px) + clamp(36px, 8cqi, 110px)); padding-right: clamp(20px, 4cqi, 60px); }
+.ly-wrap.with-card .ly-lines { text-align: left; }
+.ly-wrap.with-card .ly-line { transform-origin: left center; }
+.ly-wrap.with-card .ly3d { left: calc(clamp(230px, 28cqi, 360px) + clamp(16px, 4cqi, 56px)); }
+
+/* ------------------------------------------------------------------ lyrics view: word by word (the text stays, white fills each word) */
+.ly-lines.words .ly-line { color: rgba(255,255,255,.42); }
+.ly-lines.words .ly-line.past { color: rgba(255,255,255,.62); }
+.ly-lines.words .ly-line.on { color: rgba(255,255,255,.42); transform: none; text-shadow: none; }
+.ly-lines.words .ly-line.on .w { --p: 0; color: transparent; -webkit-background-clip: text; background-clip: text;
+  background-image: linear-gradient(90deg, #fff calc(var(--p) * 100% - 4%), rgba(255,255,255,.42) calc(var(--p) * 100% + 4%)); }
+.ly-lines.words .ly-line.on .w.now { filter: drop-shadow(0 0 10px rgba(255,255,255,.6)); }
+
+/* ------------------------------------------------------------------ lyrics view: 3D */
+.ly3d { position: absolute; inset: 0; z-index: 1; perspective: 900px; perspective-origin: 50% 45%; overflow: hidden; --kick: 0; }
+.ly3d .cam { position: absolute; left: 50%; top: 50%; transform-style: preserve-3d; will-change: transform; }
+.ly3d .world { transform-style: preserve-3d; }
+.l3 { position: absolute; transform-style: preserve-3d; white-space: nowrap; translate: -50% -50%; font-weight: 900; letter-spacing: -.02em;
+  font-size: clamp(34px, 6cqi, 82px); color: #fff; transition: opacity .6s, filter .6s; }
+.l3.gone { opacity: .18; filter: blur(3px); }
+.w3 { display: inline-block; margin: 0 .14em; opacity: 0; transform: translateZ(-220px) scale(.4) rotateX(55deg); }
+.w3.pop { animation: pop3d .42s cubic-bezier(.2, 1.5, .4, 1) forwards; }
+.l3.cur .w3.now { text-shadow: 0 0 calc(14px + var(--kick) * 30px) rgba(255,255,255,.75); }
+.l3:not(.cur) .w3.pop { animation: none; opacity: 1; transform: none; }
+@keyframes pop3d { 0% { opacity: 0; transform: translateZ(-220px) scale(.4) rotateX(55deg); } 60% { opacity: 1; transform: translateZ(40px) scale(1.12) rotateX(-6deg); }
+  100% { opacity: 1; transform: none; } }
+.ly-wrap.is3d .ly-bg { filter: brightness(calc(1 + var(--kick, 0) * .35)); }
+.ly-wrap.is3d .ly-bg::after { background: radial-gradient(ellipse at center, rgba(10,8,14,.15), rgba(10,8,14,.7)); }
+
+/* ------------------------------------------------------------------ lyrics view: loading word by word */
+.ly-loading { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 22px 28px; border-radius: 20px; background: rgba(14,12,20,.55); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  font-weight: 700; color: #fff; border: 1px solid rgba(255,255,255,.14); }
+.lyr-dots { display: flex; gap: 6px; align-items: flex-end; height: 34px; }
+.lyr-dots i { width: 7px; border-radius: 4px; background: var(--c10-grad); animation: lyr 1s ease-in-out infinite; height: 30%; }
+.lyr-dots i:nth-child(2) { animation-delay: .12s; } .lyr-dots i:nth-child(3) { animation-delay: .24s; } .lyr-dots i:nth-child(4) { animation-delay: .36s; } .lyr-dots i:nth-child(5) { animation-delay: .48s; }
+@keyframes lyr { 0%, 100% { height: 25%; opacity: .6; } 50% { height: 100%; opacity: 1; } }

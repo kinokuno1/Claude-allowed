@@ -89,6 +89,7 @@ function openTrackMenu(anchor, t, playlistId) {
 }
 async function toggleLike(t) {
   const was = S.lib.liked.includes(t.id);
+  justLiked = { id: t.id, at: Date.now() };
   await api("like", { track: t }); toast(was ? "Removed from Liked songs" : "Added to Liked songs"); await poll(); updateBar(); renderNp();
 }
 
@@ -126,6 +127,13 @@ function newPlaylist() {
 // ------------------------------------------------------------------ building blocks
 const art = (url, cls = "art", tid = "") => `<div class="${cls}"${tid ? ` data-tid="${esc(tid)}"` : ""}>${url ? `<img src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("music_note")}</div>`;
 const tart = (t, cls = "art") => art(t.thumbnail, cls, t.id);
+let justLiked = { id: null, at: 0 };
+/** Like heart. Right after liking, it fills from the inside in 10 frames and pops. */
+function heart(t) {
+  const liked = S.lib.liked.includes(t.id), pop = justLiked.id === t.id && Date.now() - justLiked.at < 900;
+  return `<svg class="i heart ${liked ? "on" : ""} ${pop ? (liked ? "pop" : "unpop") : ""}" viewBox="0 0 24 24" aria-hidden="true">
+    <path class="hf" d="${ICONS.favorite}"/><path class="ho" d="${ICONS.favorite_border}"/></svg>`;
+}
 
 // A cover that fails to load (expired link, removed video…) shows a note instead and is looked up again.
 const brokenArt = {}, reportedArt = new Set(); let brokenTimer = 0;
@@ -192,7 +200,7 @@ function trackTable(key, tracks, { playlistId, compact = false, head = true, off
       <div class="ttl">${tart(t)}<div class="ellip"><div class="t ellip">${esc(t.title)}</div>
         <div class="s">${badge(t.source)}${offlineMark(t)}<span class="ellip">${esc(t.artist || "")}</span></div></div></div>
       <div class="col-album ellip">${SOURCES[t.source]?.[0] || "Web"}</div>
-      <button class="icon-btn hov ${liked ? "liked" : ""}" data-like="${key}" data-i="${i}" title="${liked ? "Remove from Liked songs" : "Save to Liked songs"}">${icon(liked ? "favorite" : "favorite_border")}</button>
+      <button class="icon-btn hov ${liked ? "liked" : ""}" data-like="${key}" data-i="${i}" title="${liked ? "Remove from Liked songs" : "Save to Liked songs"}">${heart(t)}</button>
       <div class="dur r">${fmtOr(t.durationSec)}</div>
       <button class="icon-btn hov" data-menu="${key}" data-i="${i}" ${playlistId ? `data-pl="${playlistId}"` : ""} title="More options">${icon("more_vert")}</button></div>`;
   }).join("");
@@ -219,13 +227,13 @@ document.addEventListener("click", (e) => {
   if (card) { playFromList(card.dataset.playcard, +card.dataset.i); return; }
   const row = e.target.closest("[data-play]");
   if (row) {
-    if (e.target.closest("[data-rowplay]")) return playFromList(row.dataset.play, +row.dataset.i);
-    document.querySelectorAll(".row-track.sel").forEach((r) => r.classList.remove("sel")); row.classList.add("sel"); return;
+    document.querySelectorAll(".row-track.sel").forEach((r) => r.classList.remove("sel")); row.classList.add("sel");
+    if (e.detail > 1) return; // the 2nd click of a double-click: already playing
+    return playFromList(row.dataset.play, +row.dataset.i);
   }
   const nav = e.target.closest("[data-go]");
   if (nav) go(nav.dataset.go);
 });
-document.addEventListener("dblclick", (e) => { const row = e.target.closest("[data-play]"); if (row && !e.target.closest("button")) playFromList(row.dataset.play, +row.dataset.i); });
 document.addEventListener("contextmenu", (e) => {
   const row = e.target.closest("[data-play]"); if (!row) return;
   const t = LISTS[row.dataset.play]?.[+row.dataset.i]; if (!t) return;
@@ -543,7 +551,8 @@ const Volume = (() => {
   let value = 0.8, muted = false, saveT = 0, ui = null;
   const curve = (v) => v * v; // feels even across the slider
   function apply() {
-    audio.volume = muted ? 0 : curve(value);
+    const g = muted ? 0 : curve(value);
+    if (typeof Beat !== "undefined" && Beat.gain) { Beat.gain.gain.value = g; audio.volume = 1; } else audio.volume = g;
     ui?.set(muted ? 0 : value);
     const b = $("#vbtn"); if (b) { b.innerHTML = icon(muted || value === 0 ? "volume_off" : value < 0.5 ? "volume_down" : "volume_up"); b.title = muted ? "Unmute" : "Mute"; }
   }
@@ -558,42 +567,63 @@ const Volume = (() => {
 // ------------------------------------------------------------------ lyrics (LRCLIB, via the local engine)
 /** Lyrics for the playing song: a card in the Now playing panel and a full view in the main area.
  *  Synced lyrics light up line by line with the song; click a line to jump there. */
+const LY = { mode: store.get("tunio.lyMode", "line"), d3: store.get("tunio.ly3d", false), card: store.get("tunio.lyCard", false) };
 const Lyrics = (() => {
   const cache = new Map(); // track id -> { status: "loading" | "ok" | "error", data }
-  let raf = 0, shownIdx = -2, userScrollAt = 0;
+  const wordCache = new Map(); // track id -> word timings, only fetched when Word or 3D mode is on
+  let raf = 0, shownIdx = -2, userScrollAt = 0, lastT = 0;
+  const onLoaded = (t) => { if (Player.current()?.id === t.id) { renderNp(true); if (route() === "lyrics") render(false); } };
   function get(t) {
     if (!t) return null;
     let e = cache.get(t.id);
     if (!e || (e.status === "error" && Date.now() - e.at > 30000)) {
       e = { status: "loading" }; cache.set(t.id, e);
       api("lyrics", { track: t }).then((d) => { e.status = "ok"; e.data = d; }).catch((err) => { e.status = "error"; e.error = err.message; e.at = Date.now(); })
-        .finally(() => { if (Player.current()?.id === t.id) { renderNp(true); if (route() === "lyrics") render(false, true); } });
+        .finally(() => onLoaded(t));
     }
     return e;
   }
-  const prefetch = (t) => { if (t) get(t); };
+  /** Word timings (Musixmatch, NetEase, or estimated from the lines). */
+  function words(t) {
+    if (!t) return null;
+    let e = wordCache.get(t.id);
+    if (!e || (e.status === "error" && Date.now() - e.at > 30000)) {
+      e = { status: "loading" }; wordCache.set(t.id, e);
+      api("lyrics/words", { track: t }).then((d) => { e.status = d.lines?.length ? "ok" : "none"; e.data = d; })
+        .catch((err) => { e.status = "error"; e.error = err.message; e.at = Date.now(); })
+        .finally(() => onLoaded(t));
+    }
+    return e;
+  }
+  const wantWords = () => LY.mode === "word" || LY.d3;
+  const prefetch = (t) => { if (t) { get(t); if (wantWords()) words(t); } };
   /** Index of the line being sung (last line whose time has come), -1 before the first one. */
-  function indexAt(lines, time) {
+  function indexAt(lines, time, at = (l) => l[0]) {
     let lo = 0, hi = lines.length - 1, ans = -1;
-    while (lo <= hi) { const m = (lo + hi) >> 1; if (lines[m][0] <= time + 0.25) { ans = m; lo = m + 1; } else hi = m - 1; }
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (at(lines[m]) <= time + 0.25) { ans = m; lo = m + 1; } else hi = m - 1; }
     return ans;
   }
   const synced = () => { const e = cache.get(Player.current()?.id); return e?.status === "ok" ? e.data.synced : null; };
-  function tick() {
+  const wordLines = () => { const e = wordCache.get(Player.current()?.id); return e?.status === "ok" ? e.data.lines : null; };
+  function tick(now) {
     raf = 0;
-    const lines = synced(); if (!lines) return;
-    const idx = indexAt(lines, audio.currentTime || 0);
-    if (idx !== shownIdx) { shownIdx = idx; paint(idx); }
-    if (!audio.paused) raf = requestAnimationFrame(tick);
+    const time = audio.currentTime || 0, dt = Math.min(0.1, (now - (lastT || now)) / 1000); lastT = now;
+    const lines = synced();
+    if (lines) { const idx = indexAt(lines, time); if (idx !== shownIdx) { shownIdx = idx; paint(idx); } }
+    const wl = wordLines();
+    if (wl && route() === "lyrics") {
+      if (LY.d3 && $("#world")) Stage.frame(wl, time, dt);
+      else if (LY.mode === "word" && $("#lylines.words")) paintWords(wl, time);
+    }
+    if (!audio.paused || (LY.d3 && Stage.moving())) raf = requestAnimationFrame(tick);
   }
-  function wake(force = false) { if (force) shownIdx = -2; if (!raf) raf = requestAnimationFrame(tick); }
+  function wake(force = false) { if (force) { shownIdx = -2; wordIdx = -2; } if (!raf) { lastT = 0; raf = requestAnimationFrame(tick); } }
   function paint(idx) {
-    // full view: lines change colour softly while the list glides to the line being sung
-    const box = $("#lylines");
+    // full view (line mode): lines change colour softly while the list glides to the line being sung
+    const box = $("#lylines:not(.words)");
     if (box) {
       box.querySelectorAll(".ly-line").forEach((el, i) => { el.classList.toggle("on", i === idx); el.classList.toggle("past", i < idx); });
-      const el = box.children[Math.max(0, idx)], sc = $("#lyscroll");
-      if (el && sc && Date.now() - userScrollAt > 3000) glide(sc, el.offsetTop - sc.clientHeight * 0.36 + el.offsetHeight / 2);
+      follow(box.children[Math.max(0, idx)]);
     }
     // card in the Now playing panel: the whole text slides up so the line being sung is on top
     const card = $("#lycardlines");
@@ -607,6 +637,32 @@ const Lyrics = (() => {
       } else card.style.transform = `translateY(${-y}px)`;
     }
   }
+  function follow(el) {
+    const sc = $("#lyscroll");
+    if (el && sc && Date.now() - userScrollAt > 3000) glide(sc, el.offsetTop - sc.clientHeight * 0.36 + el.offsetHeight / 2);
+  }
+  /** Word mode: the text stays put; white fills each word as it's sung (the word being sung glows). */
+  let wordIdx = -2;
+  function paintWords(wl, time) {
+    const box = $("#lylines.words"); if (!box) return;
+    const idx = indexAt(wl, time, (l) => l.t);
+    if (idx !== wordIdx) {
+      const old = box.children[wordIdx];
+      if (old) old.querySelectorAll(".w").forEach((w) => { w.style.setProperty("--p", 1); w.classList.remove("now"); });
+      [...box.children].forEach((el, i) => { el.classList.toggle("on", i === idx); el.classList.toggle("past", i < idx); });
+      wordIdx = idx;
+      follow(box.children[Math.max(0, idx)]);
+    }
+    const line = wl[idx], el = box.children[idx];
+    if (!line || !el) return;
+    const spans = el.querySelectorAll(".w");
+    line.words.forEach(([s0, s1], k) => {
+      const p = Math.max(0, Math.min(1, (time - s0) / Math.max(0.05, s1 - s0)));
+      const sp = spans[k]; if (!sp) return;
+      if (Math.abs((+sp.dataset.p || 0) - p) > 0.01) { sp.dataset.p = p; sp.style.setProperty("--p", p.toFixed(3)); }
+      sp.classList.toggle("now", p > 0 && p < 1);
+    });
+  }
   /** Smooth, slow scroll (the browser's own "smooth" is short and abrupt). */
   let glideRaf = 0;
   function glide(sc, target) {
@@ -619,11 +675,93 @@ const Lyrics = (() => {
     glideRaf = requestAnimationFrame(step);
   }
   audio.addEventListener("play", () => wake(true));
-  audio.addEventListener("seeked", () => wake(true));
+  audio.addEventListener("seeked", () => { wake(true); Stage.reset(); });
   document.addEventListener("wheel", (e) => { if (e.target.closest?.("#lyscroll")) { userScrollAt = Date.now(); cancelAnimationFrame(glideRaf); } }, { passive: true });
   // the wavy background behind the big lyrics rests while the music is paused
   ["play", "pause"].forEach((ev) => audio.addEventListener(ev, () => $(".ly-wrap")?.classList.toggle("paused", audio.paused)));
-  return { get, prefetch, wake, indexAt, paint: () => { shownIdx = -2; wake(true); } };
+  return { get, words, wantWords, prefetch, wake, indexAt, paint: () => { shownIdx = -2; wordIdx = -2; wake(true); } };
+})();
+
+/** Beats, for the 3D lyrics: the bass is watched for sudden hits (Web Audio). Only switched on with 3D mode
+ *  (a click), and only if the browser lets the audio graph run, so the music never goes silent. */
+const Beat = (() => {
+  let ctx = null, an = null, gain = null, data = null, avg = 0, last = 0, kick = 0;
+  async function enable() {
+    if (ctx) { if (ctx.state !== "running") await ctx.resume().catch(() => {}); return true; }
+    try {
+      const c = new (window.AudioContext || window.webkitAudioContext)();
+      if (c.state !== "running") await c.resume().catch(() => {});
+      if (c.state !== "running") { c.close(); return false; }
+      const src = c.createMediaElementSource(audio);
+      an = c.createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = 0.55;
+      gain = c.createGain();
+      src.connect(an); an.connect(gain); gain.connect(c.destination);
+      data = new Uint8Array(an.frequencyBinCount);
+      ctx = c; Volume.apply();
+      return true;
+    } catch (e) { console.warn("beats off:", e); return false; }
+  }
+  /** 0…1, jumps to 1 on a beat and fades. */
+  function sample(now) {
+    if (!an || audio.paused) { kick *= 0.9; return kick; }
+    an.getByteFrequencyData(data);
+    let bass = 0; for (let i = 1; i < 9; i++) bass += data[i]; bass /= 8; // ~40-380 Hz
+    avg = avg ? avg * 0.94 + bass * 0.06 : bass;
+    if (bass > avg * 1.25 && bass > 110 && now - last > 210) { last = now; kick = 1; }
+    else kick *= 0.88;
+    return kick;
+  }
+  audio.addEventListener("play", () => { if (ctx && ctx.state !== "running") ctx.resume().catch(() => {}); });
+  return { enable, sample, get gain() { return gain; }, get on() { return !!an; } };
+})();
+
+/** The 3D lyrics stage: each line hangs somewhere along a winding path in space, the camera flies from word to
+ *  word, words pop up as they're sung, and every beat gives the camera a kick (like a music video edit). */
+const Stage = (() => {
+  let cam = { x: 0, y: 0, z: 0, ry: 0, rx: 0, rz: 0 }, built = new Map(), lineIdx = -2, kickSign = 1, velo = 1;
+  const place = (i) => ({ x: Math.sin(i * 1.7) * 320 + i * 40, y: Math.cos(i * 1.1) * 120 - i * 30, z: -i * 520, ry: Math.sin(i * 0.9) * 32, rx: Math.cos(i * 1.3) * 10 });
+  function reset() { built.forEach((el) => el.remove()); built.clear(); lineIdx = -2; }
+  function line(wl, i) {
+    if (built.has(i) || !wl[i]) return built.get(i);
+    const p = place(i), el = document.createElement("div");
+    el.className = "l3";
+    el.style.transform = `translate3d(${p.x}px, ${p.y}px, ${p.z}px) rotateY(${p.ry}deg) rotateX(${p.rx}deg)`;
+    el.innerHTML = wl[i].words.map(([, , w]) => `<span class="w3">${esc(w.trim()) || "♪"}</span>`).join(" ");
+    $("#world").append(el); built.set(i, el);
+    return el;
+  }
+  function frame(wl, time, dt) {
+    const idx = Math.max(0, Lyrics.indexAt(wl, time, (l) => l.t));
+    if (idx !== lineIdx) {
+      for (const [i, el] of built) if (i < idx - 2 || i > idx + 1) { el.remove(); built.delete(i); }
+      built.forEach((el, i) => { el.classList.toggle("gone", i < idx); el.classList.toggle("cur", i === idx); });
+      lineIdx = idx; kickSign = -kickSign;
+    }
+    const el = line(wl, idx); line(wl, idx + 1);
+    if (!el) return;
+    // words pop as they're sung; the camera aims at the newest one
+    const spans = el.querySelectorAll(".w3"); let aim = spans[0];
+    wl[idx].words.forEach(([s0, s1], k) => {
+      const sp = spans[k]; if (!sp) return;
+      const on = time >= s0 - 0.04;
+      if (on && !sp.classList.contains("pop")) sp.classList.add("pop");
+      if (!on && sp.classList.contains("pop") && time < s0 - 0.3) sp.classList.remove("pop");
+      sp.classList.toggle("now", time >= s0 && time < s1);
+      if (on) aim = sp;
+    });
+    const p = place(idx);
+    const wx = aim ? aim.offsetLeft + aim.offsetWidth / 2 - el.offsetWidth / 2 : 0;
+    const k = Beat.sample(performance.now());
+    const target = { x: p.x + wx * Math.cos(p.ry * Math.PI / 180), y: p.y, z: p.z - wx * Math.sin(p.ry * Math.PI / 180), ry: p.ry, rx: p.rx, rz: kickSign * k * 2.2 };
+    const a = 1 - Math.exp(-dt * 5);
+    for (const key of ["x", "y", "z", "ry", "rx"]) cam[key] += (target[key] - cam[key]) * a;
+    cam.rz += (target.rz - cam.rz) * Math.min(1, a * 3);
+    velo = Math.abs(target.x - cam.x) + Math.abs(target.z - cam.z);
+    const zoom = 120 + k * 60;
+    $("#cam").style.transform = `translateZ(${zoom}px) rotateZ(${cam.rz}deg) rotateX(${-cam.rx}deg) rotateY(${-cam.ry}deg) translate3d(${-cam.x}px, ${-cam.y}px, ${-cam.z}px)`;
+    $("#ly3d").style.setProperty("--kick", k.toFixed(3));
+  }
+  return { frame, reset, moving: () => velo > 2 };
 })();
 
 // ------------------------------------------------------------------ player
@@ -635,11 +773,13 @@ const Player = (() => {
     Lyrics.prefetch(t);
     const my = ++loadToken; preparing = true; audio.pause(); updateUi();
     try {
-      const { src } = await api("prepare", { track: t });
+      const { src, kind } = await api("prepare", { track: t });
       if (my !== loadToken) return;
+      attempt = { my, kind, retried: false, track: t };
       audio.src = `${src}?t=${encodeURIComponent(TOKEN)}`;
       await audio.play().catch(() => {});
       failures = 0;
+      if (kind === "stream") setTimeout(() => { if (attempt.my === my && !attempt.retried && my === loadToken && !(audio.currentTime > 0.05) && !userPaused) retry("slow"); }, 12000);
     } catch (e) {
       if (my !== loadToken) return;
       toast(`Couldn't play “${t.title}”: ${e.message}`);
@@ -673,6 +813,25 @@ const Player = (() => {
     else if (repeat === "all") load(0);
     else if (!auto) load(index); // restart last
   }
+  let attempt = { my: -1 }, userPaused = false;
+  /** The stream didn't start (expired link, refused, too slow): get the whole song from the engine and play that. */
+  async function retry(why) {
+    const t = current(); if (!t || attempt.retried) return;
+    attempt.retried = true;
+    const my = loadToken; preparing = true; updateUi();
+    if (why === "slow") toast(`“${t.title}” is slow to start: fetching it…`);
+    try {
+      const { src } = await api("prepare", { track: t, retry: true });
+      if (my !== loadToken) return;
+      const at = audio.currentTime || 0;
+      audio.src = `${src}?t=${encodeURIComponent(TOKEN)}`;
+      if (at > 1) audio.currentTime = at;
+      await audio.play().catch(() => {});
+    } catch (e) { if (my === loadToken) toast(`Couldn't play “${t.title}”: ${e.message}`); }
+    finally { if (my === loadToken) { preparing = false; updateUi(); } }
+  }
+  audio.addEventListener("pause", () => { userPaused = !preparing && !audio.ended; });
+  audio.addEventListener("play", () => { userPaused = false; });
   function prev() { if (audio.currentTime > 3 || index <= 0) audio.currentTime = 0; else load(index - 1); }
   function toggle() { if (!current() || preparing) return; if (!audio.src) return load(index); audio.paused ? audio.play() : audio.pause(); }
   function toggleShuffle() {
@@ -687,7 +846,11 @@ const Player = (() => {
   function remove(i) { if (i === index) return; queue.splice(i, 1); if (i < index) index--; updateUi(); }
   function jump(i) { load(i); }
   audio.addEventListener("ended", () => next(true));
-  audio.addEventListener("error", () => { if (!audio.src || preparing) return; const t = current(); toast(`Playback error: ${t?.title || ""}`); if (++failures < 3) next(true); });
+  audio.addEventListener("error", () => {
+    if (!audio.src || preparing) return;
+    if (attempt.my === loadToken && attempt.kind === "stream" && !attempt.retried) return retry("error"); // first, try the whole song
+    const t = current(); toast(`Playback error: ${t?.title || ""}`); if (++failures < 3) next(true);
+  });
   ["play", "pause"].forEach((ev) => audio.addEventListener(ev, updateUi));
   function media() {
     const t = current(); if (!("mediaSession" in navigator) || !t) return;
@@ -754,7 +917,7 @@ function updateBar() {
   if (now.dataset.key !== key) {
     now.dataset.key = key;
     now.innerHTML = t ? `${tart(t)}<div class="ellip"><div class="t ellip" id="btitle">${esc(t.title)}</div><div class="a ellip">${Player.preparing ? "Loading…" : esc(t.artist || SOURCES[t.source]?.[0])}</div></div>
-      <button class="icon-btn ${S.lib.liked.includes(t.id) ? "liked" : ""}" id="blike" title="${S.lib.liked.includes(t.id) ? "Remove from Liked songs" : "Save to Liked songs"}">${icon(S.lib.liked.includes(t.id) ? "favorite" : "favorite_border")}</button>` : "";
+      <button class="icon-btn ${S.lib.liked.includes(t.id) ? "liked" : ""}" id="blike" title="${S.lib.liked.includes(t.id) ? "Remove from Liked songs" : "Save to Liked songs"}">${heart(t)}</button>` : "";
     if (t) { $("#blike").onclick = () => toggleLike(t); now.querySelector(".art").onclick = $("#btitle").onclick = () => { if (!npVisible()) toggleNp(); }; }
   }
   const pp = $("#bplay");
@@ -770,12 +933,18 @@ function updateBar() {
   $("#bdl").title = off ? "Downloaded (click to remove)" : "Download";
   $("#bnp").classList.toggle("on", npVisible());
   $("#bly").classList.toggle("on", route() === "lyrics"); $("#bly").disabled = !t;
+  if ($("#bcplay")) {
+    $("#bcplay").innerHTML = icon(playing ? "pause" : "play_arrow");
+    $("#bcshuf").classList.toggle("on", Player.shuffle); $("#bcrep").classList.toggle("on", Player.repeat !== "off");
+    $("#bcrep").innerHTML = icon(Player.repeat === "one" ? "repeat_one" : "repeat");
+  }
   $("#seek").classList.toggle("busy", !!Player.preparing);
   tickProgress();
 }
 function tickProgress() {
   const d = audio.duration || Player.current()?.durationSec || 0, c = audio.currentTime || 0, frac = d && isFinite(d) ? Math.min(1, c / d) : 0;
   if (progress && !seeking) { progress.set(frac); $("#tcur").textContent = fmt(Player.current() ? c : 0); $("#tdur").textContent = fmt(isFinite(d) ? d : 0); }
+  const f = $("#bcf"); if (f) { f.style.width = (frac * 100) + "%"; $("#bct").textContent = fmt(c); if (d && isFinite(d)) $("#bcd").textContent = fmt(d); }
 }
 audio.addEventListener("timeupdate", tickProgress);
 audio.addEventListener("durationchange", tickProgress);
@@ -784,15 +953,14 @@ audio.addEventListener("durationchange", tickProgress);
 function setupNp() {
   $("#np-song").innerHTML = `<div class="panel-head"><h2 id="npctx" class="ellip">Now playing</h2><span class="spacer"></span>
       <button class="round small" id="npclose" title="Hide Now playing view">${icon("close")}</button></div>
-    <div class="np-songbody" id="npmain"></div>`;
-  $("#np-lyrics").innerHTML = `<div id="lyslot" style="display:flex;flex:1;min-height:0"></div>`;
+    <div class="np-songbody"><div class="np-top" id="npmain"></div><div class="np-ly" id="lyslot"></div></div>`;
   $("#np-queue").innerHTML = `<div class="panel-head"><h2>Next in queue</h2><span class="spacer"></span><span class="muted small" id="qcount"></span></div>
     <div class="q-list" id="npqueue"></div>`;
   $("#npclose").onclick = toggleNp;
   $("#lyslot").addEventListener("click", () => { if (Player.current()) route() === "lyrics" ? back() : go("lyrics"); });
   $("#lyslot").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#lyslot").click(); });
   // keep the sliding lyrics lined up when the section changes size
-  new ResizeObserver(() => Lyrics.paint()).observe($("#np-lyrics"));
+  new ResizeObserver(() => Lyrics.paint()).observe($("#lyslot"));
 }
 function lyricsCardHtml(t) {
   const e = t ? Lyrics.get(t) : null;
@@ -829,7 +997,7 @@ function renderNp(force = false) {
     main.innerHTML = `<div class="np-cover" data-tid="${esc(t.id)}">${t.thumbnail ? `<img src="${esc(t.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ""}
         ${Player.preparing ? `<div class="wait"><span class="spinner" style="width:32px;height:32px;border-width:3px"></span><span>${p !== undefined && p >= 0 ? `Fetching audio ${Math.round(p * 100)}%` : "Finding audio…"}</span></div>` : ""}</div>
       <div class="np-info"><div style="flex:1;min-width:0"><div class="t">${esc(t.title)}</div><div class="a ellip">${badge(t.source)} ${offlineMark(t)} ${esc(t.artist || "")}</div></div>
-        <button class="icon-btn ${liked ? "liked" : ""}" id="nplike" title="${liked ? "Remove from Liked songs" : "Save to Liked songs"}">${icon(liked ? "favorite" : "favorite_border")}</button>
+        <button class="icon-btn ${liked ? "liked" : ""}" id="nplike" title="${liked ? "Remove from Liked songs" : "Save to Liked songs"}">${heart(t)}</button>
         <button class="icon-btn" data-menu="now" data-i="0" title="More options">${icon("more_vert")}</button></div>`;
     LISTS.now = [t];
     $("#nplike").onclick = () => toggleLike(t);
@@ -851,30 +1019,85 @@ function lyricsHtml() {
   const t = Player.current();
   if (!t) return `<div class="page"><h1 class="title">Lyrics</h1><div class="panel muted">Play a song and its lyrics show up here.</div></div>`;
   const e = Lyrics.get(t), d = e.data || {}, cover = t.thumbnail;
-  let lines = "", note = "";
+  const we = Lyrics.wantWords() && e.status === "ok" && d.synced ? Lyrics.words(t) : null;
+  const wordsOk = we?.status === "ok", wordsLoading = we?.status === "loading";
+  let lines = "", note = "", cls = d.synced ? "synced" : "";
   if (e.status === "loading") lines = `<p class="ly-msg"><span class="spinner"></span> Looking for lyrics…</p>`;
   else if (e.status === "error") lines = `<p class="ly-msg">Couldn't reach the lyrics service.<br><span class="small">Check your internet connection and try again.</span></p>`;
   else if (d.instrumental) lines = `<p class="ly-msg">♪ This song is instrumental ♪</p>`;
-  else if (d.synced) lines = d.synced.map(([time, txt]) => `<p class="ly-line" data-t="${time}">${esc(txt) || "♪"}</p>`).join("");
+  else if (LY.mode === "word" && wordsOk) {
+    cls += " words";
+    lines = we.data.lines.map((l) => `<p class="ly-line" data-t="${l.t}">${l.words.map(([, , w]) => `<span class="w">${esc(w)}</span>`).join("")}</p>`).join("");
+    note = we.data.estimated ? "Word timing estimated from the line timing." : `Word timing from ${esc(we.data.source)}.`;
+  } else if (d.synced) lines = d.synced.map(([time, txt]) => `<p class="ly-line" data-t="${time}">${esc(txt) || "♪"}</p>`).join("");
   else if (d.plain) { lines = d.plain.split("\n").map((l) => `<p class="ly-line plain">${esc(l) || "&nbsp;"}</p>`).join(""); note = "These lyrics aren't synced to the song."; }
   else lines = `<p class="ly-msg">No lyrics found for this song.<br><span class="small">LRCLIB is made by its community, so new or rare songs may be missing.</span></p>`;
-  const focus = $("#app").classList.contains("focus");
-  return `<div class="ly-wrap ${audio.paused ? "paused" : ""}" data-key="${esc(t.id)}|${e.status}">
+  if (Lyrics.wantWords() && we && (we.status === "none" || we.status === "error")) note = we.data?.error || "No word timing for this song: showing it line by line.";
+  const d3 = LY.d3 && wordsOk, focus = $("#app").classList.contains("focus");
+  const key = [t.id, e.status, LY.mode, LY.d3, LY.card, we?.status || "", S.lib.liked.includes(t.id)].join("|");
+  return `<div class="ly-wrap ${audio.paused ? "paused" : ""} ${LY.card ? "with-card" : ""} ${d3 ? "is3d" : ""}" data-key="${esc(key)}">
     <div class="ly-bg">${cover ? ["b1", "b2", "b3", "b4"].map((c) => `<img class="${c}" src="${esc(cover)}" alt="" referrerpolicy="no-referrer">`).join("") : ""}</div>
-    <div class="ly-scroll" id="lyscroll"><div class="ly-lines ${d.synced ? "synced" : ""}" id="lylines">${lines}</div>
-      <p class="ly-credit">${note ? `${note} · ` : ""}${e.status === "ok" && d.found ? `Lyrics from LRCLIB${d.track ? ` (“${esc(d.track)}” by ${esc(d.artist)})` : ""}` : ""}</p></div>
-    <div class="ly-top">${art(cover)}<div class="ellip"><div class="t ellip">${esc(t.title)}</div><div class="a ellip">${esc(t.artist || "")}</div></div><span class="spacer"></span>
+    ${LY.card ? bigCardHtml(t) : ""}
+    ${d3 ? `<div class="ly3d" id="ly3d"><div class="cam" id="cam"><div class="world" id="world"></div></div></div>`
+      : `<div class="ly-scroll" id="lyscroll"><div class="ly-lines ${cls}" id="lylines">${lines}</div>
+      <p class="ly-credit">${note ? `${note} · ` : ""}${e.status === "ok" && d.found ? `Lyrics from LRCLIB${d.track ? ` (“${esc(d.track)}” by ${esc(d.artist)})` : ""}` : ""}</p></div>`}
+    ${wordsLoading ? `<div class="ly-loading"><div class="lyr-dots"><i></i><i></i><i></i><i></i><i></i></div><span>Loading word-by-word lyrics…</span></div>` : ""}
+    <div class="ly-top">
+      ${LY.card ? "" : `<button class="ly-song" id="lysong" title="Show the big player">${art(cover, "art lyc")}<div class="ellip"><div class="t ellip lyt">${esc(t.title)}</div><div class="a ellip">${esc(t.artist || "")}</div></div></button>`}
+      <span class="spacer"></span>
+      <div class="seg" role="group" aria-label="Highlight">
+        <button class="${LY.mode === "line" ? "on" : ""}" data-lymode="line" title="Highlight whole lines">Line</button>
+        <button class="${LY.mode === "word" ? "on" : ""}" data-lymode="word" title="Highlight word by word">Word</button></div>
+      <button class="pill3d ${LY.d3 ? "on" : ""}" id="ly3dbtn" title="3D: the camera follows each word, in time with the beat">3D</button>
       <button class="round" id="lyfocus" title="${focus ? "Show the side panels again" : "Fill the window with lyrics"}">${icon(focus ? "fullscreen_exit" : "fullscreen")}</button>
       <button class="round" id="lyclose" title="Close lyrics">${icon("close")}</button></div>
   </div>`;
 }
+/** The big player card in the lyrics view (the small title at the top left grows into it). */
+function bigCardHtml(t) {
+  const playing = !audio.paused;
+  return `<div class="ly-big" id="lybig">
+    <div class="bc-cover lyc">${t.thumbnail ? `<img src="${esc(t.thumbnail)}" alt="" referrerpolicy="no-referrer">` : icon("music_note")}
+      <button class="bc-like ${S.lib.liked.includes(t.id) ? "liked" : ""}" id="bclike" title="Like">${heart(t)}</button></div>
+    <div class="bc-ctrls">
+      <button id="bcshuf" class="${Player.shuffle ? "on" : ""}" title="Shuffle">${icon("shuffle")}</button>
+      <button id="bcprev" title="Previous">${icon("skip_previous")}</button>
+      <button id="bcplay" title="Play/pause">${icon(playing ? "pause" : "play_arrow")}</button>
+      <button id="bcnext" title="Next">${icon("skip_next")}</button>
+      <button id="bcrep" class="${Player.repeat !== "off" ? "on" : ""}" title="Repeat">${icon(Player.repeat === "one" ? "repeat_one" : "repeat")}</button></div>
+    <div class="bc-prog"><span id="bct">0:00</span><div class="bc-bar" id="bcbar"><i id="bcf"></i></div><span id="bcd">${fmtOr(t.durationSec)}</span></div>
+    <button class="bc-title" id="bctitle" title="Back to the small title"><div class="t lyt">${esc(t.title)}</div><div class="a">${esc(t.artist || "")}</div></button>
+  </div>`;
+}
+function toggleCard() {
+  const go = () => { LY.card = !LY.card; store.set("tunio.lyCard", LY.card); render(false); };
+  if (document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) document.startViewTransition(go); else go();
+}
 function bindLyrics() {
   $("#lyclose")?.addEventListener("click", back);
   $("#lyfocus")?.addEventListener("click", () => { $("#app").classList.toggle("focus"); render(true); });
+  $("#lysong")?.addEventListener("click", toggleCard);
+  $("#bctitle")?.addEventListener("click", toggleCard);
   $("#lylines")?.addEventListener("click", (e) => {
     const line = e.target.closest(".ly-line[data-t]"); if (!line) return;
     audio.currentTime = Math.max(0, +line.dataset.t); if (audio.paused) audio.play(); Lyrics.paint();
   });
+  document.querySelectorAll("[data-lymode]").forEach((b) => b.onclick = () => {
+    LY.mode = b.dataset.lymode; store.set("tunio.lyMode", LY.mode); render(false); Lyrics.paint();
+  });
+  $("#ly3dbtn")?.addEventListener("click", async () => {
+    LY.d3 = !LY.d3; store.set("tunio.ly3d", LY.d3);
+    if (LY.d3 && !(await Beat.enable())) toast("3D is on, but beat detection isn't available here: the camera follows the words only.");
+    Stage.reset(); render(false); Lyrics.paint();
+  });
+  if ($("#lybig")) {
+    $("#bcplay").onclick = Player.toggle; $("#bcnext").onclick = () => Player.next(); $("#bcprev").onclick = Player.prev;
+    $("#bcshuf").onclick = Player.toggleShuffle; $("#bcrep").onclick = Player.cycleRepeat;
+    $("#bclike").onclick = () => { const t = Player.current(); if (t) toggleLike(t); };
+    $("#bcbar").onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); if (audio.duration) audio.currentTime = (e.clientX - r.left) / r.width * audio.duration; };
+  }
+  if (LY.d3) { Stage.reset(); if (Beat.on === false) Beat.enable(); }
+  tickProgress();
   Lyrics.paint();
 }
 
@@ -897,8 +1120,8 @@ function dragSplit(el, kind, { start, move, end, reset }) {
   if (reset) el.addEventListener("dblclick", reset);
 }
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const SIZES = { side: store.get("tunio.sideW", 300), np: store.get("tunio.npW", 320), rows: store.get("tunio.npRows", [0.56, 0.2, 0.24]) };
-const ROW_MIN = [150, 100, 80]; // song, lyrics, queue (px)
+const SIZES = { side: store.get("tunio.sideW", 300), np: store.get("tunio.npW", 320), rows: store.get("tunio.npRows2", [0.7, 0.3]) };
+const ROW_MIN = [260, 80]; // song + lyrics, queue (px)
 function applySizes() {
   const app = $("#app");
   app.style.setProperty("--side-user", SIZES.side + "px");
@@ -939,8 +1162,8 @@ function setupSplitters() {
         const total = next.reduce((x, y) => x + y, 0);
         SIZES.rows = next.map((x) => +(x / total).toFixed(4)); applySizes();
       },
-      end: () => store.set("tunio.npRows", SIZES.rows),
-      reset: () => { SIZES.rows = [0.56, 0.2, 0.24]; applySizes(); store.set("tunio.npRows", SIZES.rows); },
+      end: () => store.set("tunio.npRows2", SIZES.rows),
+      reset: () => { SIZES.rows = [0.7, 0.3]; applySizes(); store.set("tunio.npRows2", SIZES.rows); },
     });
   });
 }

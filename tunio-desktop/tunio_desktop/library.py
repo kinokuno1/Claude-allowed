@@ -188,20 +188,39 @@ class Library:
         return match
 
     def stream(self, t: Track) -> dict | None:
-        """A URL the player can stream right away, or None if it must be downloaded first."""
+        """A URL the player can stream right away, or None if it must be downloaded first.
+        One lookup per song at a time: a click while the song is being looked up in the background
+        (the top search result is prepared in advance) waits for that lookup instead of starting another."""
         if t.source in ("TIKTOK", "OTHER"):
             return None
-        cached = self._streams.get(t.id)
-        if cached and time.time() - cached[1] < 3 * 3600:
-            return cached[0]
+        key = "stream:" + t.id
+        with self.lock:
+            cached = self._streams.get(t.id)
+            if cached and time.time() - cached[1] < 3 * 3600:
+                return cached[0]
+            ev = self._inflight.get(key)
+            owner = ev is None
+            if owner:
+                ev = self._inflight[key] = threading.Event()
+        if not owner:
+            ev.wait(60)
+            c = self._streams.get(t.id)
+            return c[0] if c else None
         self.progress[t.id] = -1
         try:
             info = engine.stream(self.target(t))
+            if info:
+                self._streams[t.id] = (info, time.time())
+            return info
         finally:
             self.progress.pop(t.id, None)
-        if info:
-            self._streams[t.id] = (info, time.time())
-        return info
+            with self.lock:
+                self._inflight.pop(key, None)
+            ev.set()
+
+    def forget_stream(self, tid: str):
+        """The player couldn't use this link (expired, refused): look it up again next time."""
+        self._streams.pop(tid, None)
 
     def stream_info(self, tid: str) -> dict | None:
         c = self._streams.get(tid)
