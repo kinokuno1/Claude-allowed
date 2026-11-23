@@ -136,6 +136,11 @@ def main():
                 time.sleep(3600)
         except KeyboardInterrupt:
             return
+    # A music player must be able to start sound by itself: WebView2 otherwise only lets audio start within a
+    # few seconds of a click, so a song that takes longer to look up stays paused.
+    args = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
+    if "autoplay-policy" not in args:
+        os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (args + " --disable-features=ElasticOverscroll --autoplay-policy=no-user-gesture-required").strip()
     import webview
 
     api = WindowApi()

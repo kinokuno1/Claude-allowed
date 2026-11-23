@@ -10,7 +10,7 @@ const fmt = (s) => { s = Math.max(0, Math.floor(s || 0)); const h = Math.floor(s
   return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
 const fmtOr = (s) => (s ? fmt(s) : "");
 const SOURCES = { YOUTUBE: ["YouTube", "YT"], SOUNDCLOUD: ["SoundCloud", "SC"], TIKTOK: ["TikTok", "TT"], SPOTIFY: ["Spotify", "SP"], OTHER: ["Web", "WEB"] };
-const LIKED_G = "linear-gradient(135deg,#7C4DEE,#D4337F)", DL_G = "linear-gradient(135deg,#3B3A8F,#0A8A62)";
+const LIKED_G = "#5B45B8", DL_G = "#0F6E5C"; // flat colours (no gradients)
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } } };
 
@@ -470,7 +470,7 @@ function collectionHtml(r) {
   const empty = r === "liked" ? "Songs you like appear here. Click ♡ on any song." : r === "downloads" ? "Nothing downloaded yet. Right-click a song → Download, or use ⤓ on a playlist." : "This playlist is empty. Search for songs and right-click → Add to playlist.";
   const cover = r.startsWith("pl:") ? plCover(pl) : null;
   const glow = cover ? `<div class="header-glow cover"><img src="${esc(cover)}" alt="" referrerpolicy="no-referrer"></div>`
-    : `<div class="header-glow" style="--tint:${r === "liked" ? "#7C4DEE" : "#2F6F8F"};height:420px"></div>`;
+    : `<div class="header-glow" style="--tint:${r === "liked" ? "#5B45B8" : "#0F6E5C"};height:420px"></div>`;
   return `${glow}
     <div class="coll-head">${collArt(r)}<div style="min-width:0"><div class="kind">${r === "downloads" ? "Offline" : "Playlist"}</div>
       <h1>${esc(title)}</h1><div class="stats"><b>Tunio</b> · ${tracks.length} songs<span class="muted">${total ? `, about ${total >= 3600 ? `${Math.floor(total / 3600)} hr ` : ""}${Math.round(total % 3600 / 60)} min` : ""}</span></div></div></div>
@@ -777,7 +777,7 @@ const Player = (() => {
       if (my !== loadToken) return;
       attempt = { my, kind, retried: false, track: t };
       audio.src = `${src}?t=${encodeURIComponent(TOKEN)}`;
-      await audio.play().catch(() => {});
+      await start(my);
       failures = 0;
       if (kind === "stream") setTimeout(() => { if (attempt.my === my && !attempt.retried && my === loadToken && !(audio.currentTime > 0.05) && !userPaused) retry("slow"); }, 12000);
     } catch (e) {
@@ -814,6 +814,16 @@ const Player = (() => {
     else if (!auto) load(index); // restart last
   }
   let attempt = { my: -1 }, userPaused = false;
+  /** Starts playback. If the browser blocks sound that starts on its own, the next click anywhere starts it. */
+  async function start(my) {
+    try { await audio.play(); }
+    catch (e) {
+      if (e?.name !== "NotAllowedError" || my !== loadToken) return;
+      toast("Click anywhere to start the music");
+      const go = () => { document.removeEventListener("pointerdown", go, true); if (my === loadToken && audio.paused) audio.play().catch(() => {}); };
+      document.addEventListener("pointerdown", go, true);
+    }
+  }
   /** The stream didn't start (expired link, refused, too slow): get the whole song from the engine and play that. */
   async function retry(why) {
     const t = current(); if (!t || attempt.retried) return;
@@ -826,7 +836,7 @@ const Player = (() => {
       const at = audio.currentTime || 0;
       audio.src = `${src}?t=${encodeURIComponent(TOKEN)}`;
       if (at > 1) audio.currentTime = at;
-      await audio.play().catch(() => {});
+      await start(my);
     } catch (e) { if (my === loadToken) toast(`Couldn't play “${t.title}”: ${e.message}`); }
     finally { if (my === loadToken) { preparing = false; updateUi(); } }
   }
