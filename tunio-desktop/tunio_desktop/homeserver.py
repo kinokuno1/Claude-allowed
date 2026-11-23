@@ -30,7 +30,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
-from . import core, engine
+from . import core, engine, jam
 from .paths import DATA_DIR
 
 VERSION = 1
@@ -467,6 +467,14 @@ class Server:
         self.fetcher.store = self.store
         self.night = Night(cfg, self.store, self.fetcher)
         self.flat_cache: dict[str, tuple[str, float]] = {}
+        self.jams = jam.JamHub(self.warm_jam)
+
+    def warm_jam(self, tracks: list[dict]):
+        """Fetches a Jam's next songs ahead, so they start instantly when it's their turn."""
+        for t in tracks:
+            url = jam.target(t)
+            if url and self.fetcher.active() < 6:
+                self.fetcher.get(url, {"title": t.get("title", ""), "artist": t.get("artist", ""), "via": "jam"})
 
     def authorized(self, handler) -> bool:
         pw = self.cfg["password"]
@@ -547,6 +555,8 @@ def make_handler(srv: Server):
                 return self._json({"tunio": "home-server", "version": VERSION})
             if u.path == "/pair":
                 return self._send(200, PAIR_PAGE, "text/html; charset=utf-8")
+            if u.path.startswith("/jam/") or u.path.startswith("/api/jam"):
+                return self._jam_get(u.path, q)
             if u.path in ("/", "/index.html"):
                 if not srv.authorized(self):
                     return self._send(200, page_login(), "text/html; charset=utf-8")
@@ -570,6 +580,8 @@ def make_handler(srv: Server):
                     cookie = f"tunio={srv.cookie_value()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000"
                     return self._send(303, b"", "text/plain", {"Location": "/", "Set-Cookie": cookie})
                 return self._send(200, page_login("Wrong password"), "text/html; charset=utf-8")
+            if u.path.startswith("/api/jam"):
+                return self._jam_post(u.path)
             if not srv.authorized(self):
                 return self._json({"error": "wrong password"}, 401)
             try:
@@ -595,6 +607,53 @@ def make_handler(srv: Server):
             except Exception as e:  # noqa: BLE001 - goes back to the phone, which falls back to itself
                 msg = (str(e).strip().splitlines() or [type(e).__name__])[-1].removeprefix("ERROR: ")
                 return self._json({"error": msg[:300]}, 502)
+            self._json({"error": "not found"}, 404)
+
+        # ---- Jams (no server password: a Jam has its own, and its own member tokens)
+
+        def _jam_get(self, path: str, q: dict):
+            try:
+                if path == "/api/jams":
+                    return self._json({"jams": srv.jams.list()})
+                m = re.fullmatch(r"/jam/([A-Za-z0-9]+)", path)
+                if m:  # a shared link opened in a browser
+                    s = next((j for j in srv.jams.list() if j["id"] == m.group(1)), None)
+                    return self._send(200, jam.page(m.group(1), s), "text/html; charset=utf-8")
+                token = self.headers.get("X-Jam-Token", "") or q.get("token", "")
+                m = re.fullmatch(r"/api/jam/([A-Za-z0-9]+)", path)
+                if m:
+                    since = int(q.get("since") or 0)
+                    return self._json(srv.jams.state(m.group(1), token, since, float(q.get("wait") or 25)))
+                m = re.fullmatch(r"/api/jam/([A-Za-z0-9]+)/audio", path)
+                if m:
+                    url, meta = srv.jams.track_target(m.group(1), token, q.get("qid", ""))
+                    return self._audio(url, meta)
+                if path == "/api/jam-time":
+                    return self._json({"serverTime": time.time()})
+            except jam.JamError as e:
+                return self._json({"error": str(e)}, e.code)
+            self._json({"error": "not found"}, 404)
+
+        def _jam_post(self, path: str):
+            try:
+                body = json.loads(self._body() or b"{}")
+                if path == "/api/jams":  # only phones set up with this server start Jams
+                    if not srv.authorized(self):
+                        return self._json({"error": "wrong password"}, 401)
+                    out = srv.jams.create(body.get("name", ""), body.get("password", ""), body.get("you", ""),
+                                          body.get("tracks"), int(body.get("index") or 0), float(body.get("position") or 0),
+                                          bool(body.get("playing")))
+                    return self._json(out)
+                m = re.fullmatch(r"/api/jam/([A-Za-z0-9]+)/join", path)
+                if m:
+                    return self._json(srv.jams.join(m.group(1), body.get("you", ""), body.get("password", "")))
+                m = re.fullmatch(r"/api/jam/([A-Za-z0-9]+)", path)
+                if m:
+                    return self._json(srv.jams.act(m.group(1), self.headers.get("X-Jam-Token", ""), body))
+            except jam.JamError as e:
+                return self._json({"error": str(e)}, e.code)
+            except (ValueError, TypeError) as e:
+                return self._json({"error": f"bad request: {e}"}, 400)
             self._json({"error": "not found"}, 404)
 
         # ---- audio
