@@ -23,6 +23,7 @@
 	<!-- The home server is on your own network (plain http) -->
 	<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/><key>NSAllowsLocalNetworking</key><true/></dict>
 	<key>NSLocalNetworkUsageDescription</key><string>Tunio looks for your Tunio home server (Raspberry Pi) on your Wi-Fi.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key><string>Tunio uses Bluetooth to find Jams on phones near you, and to show your Jam to friends nearby.</string>
 	<key>NSCameraUsageDescription</key><string>Tunio uses the camera only to scan your home server's QR code. Nothing is recorded.</string>
 	<key>NSBonjourServices</key><array><string>_tunio._tcp</string></array>
 	<!-- tunio://pair?u=...&k=... from the home server's QR code -->

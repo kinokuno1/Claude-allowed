@@ -108,20 +108,25 @@ final class Jam: ObservableObject {
     private struct JamList: Codable { var jams: [JamInfo] }
     private struct Joined: Codable { var id: String; var token: String; var state: JamState }
 
-    /// Jams on your own server and on a Tunio server found on this Wi-Fi.
+    /// Jams nearby: announced over Bluetooth by phones around you, and on Tunio servers on this Wi-Fi.
     func nearby() async -> [JamFound] {
+        async let bluetooth = JamBeacon.shared.scan()
         let home = HomeServer.shared
         var servers: [String] = []
         if !home.address.isEmpty { servers.append(home.address) }
         home.discover()
         try? await Task.sleep(nanoseconds: 3_500_000_000)
         for a in home.found where !servers.contains(a) { servers.append(a) }
+        let ble = await bluetooth
+        for f in ble where !servers.contains(f.server) { servers.append(f.server) }
         var out: [JamFound] = []
         for s in servers {
             guard let data = try? await request("GET", s + "/api/jams", timeout: 5),
                   let list = try? JSONDecoder().decode(JamList.self, from: data) else { continue }
             for j in list.jams where !out.contains(where: { $0.info.id == j.id }) { out.append(JamFound(server: s, info: j)) }
         }
+        // Bluetooth ones are kept even if their server can't be listed from here
+        for f in ble where !out.contains(where: { $0.info.id == f.info.id }) { out.append(f) }
         return out
     }
 
@@ -202,6 +207,12 @@ final class Jam: ObservableObject {
         let old = state
         state = s
         Player.shared.followJam(old, s)
+        // the host's phone announces the Jam over Bluetooth to phones nearby
+        if let s, s.you?.host == true {
+            JamBeacon.shared.startHosting(server: server, id: s.id, name: s.name, locked: s.locked == true, host: s.you?.name ?? "")
+        } else if old?.you?.host == true {
+            JamBeacon.shared.stopHosting()
+        }
     }
 
     // MARK: following the Jam

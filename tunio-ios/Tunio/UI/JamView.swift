@@ -7,23 +7,22 @@ struct JamView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Jam").font(.system(size: 26, weight: .heavy)).padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 4)
             Group {
                 if let s = jam.state { InJamView(state: s) } else { StartOrJoinView() }
             }
             .scrollContentBackground(.hidden)
-            .background(Theme.c60)
-            .navigationTitle("Jam")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
-                }
-            }
         }
+        .foregroundStyle(Theme.text)
+        .background(Theme.c30)
         .preferredColorScheme(.dark)
         .tint(Theme.accentLight)
         .overlay { JoinPrompt() }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(Theme.c30)
+        .presentationCornerRadius(24)
     }
 }
 
@@ -55,8 +54,8 @@ private struct StartOrJoinView: View {
             Section {
                 if found.isEmpty {
                     HStack(spacing: 12) {
-                        if scanning { Radar(); Text("Looking for Jams on this Wi-Fi…").foregroundStyle(Theme.muted) }
-                        else { Text("No Jam found on this Wi-Fi. Ask the host for the link.").foregroundStyle(Theme.muted) }
+                        if scanning { Radar(); Text("Looking for Jams nearby…").foregroundStyle(Theme.muted) }
+                        else { Text("No Jam found nearby. Turn on Bluetooth, or ask the host for the link.").foregroundStyle(Theme.muted) }
                     }
                 }
                 ForEach(found) { f in
@@ -91,6 +90,7 @@ private struct StartOrJoinView: View {
                     else { Button { scan() } label: { Image(systemName: "arrow.clockwise") } }
                 }
             }
+            .listRowBackground(Theme.c30hi)
 
             Section {
                 TextField("Your name", text: $you)
@@ -108,6 +108,7 @@ private struct StartOrJoinView: View {
                     Text("Runs on your home server. What's playing now becomes the start of the queue. Guests on your Wi-Fi see it here; send the link to anyone else.")
                 }
             }
+            .listRowBackground(Theme.c30hi)
             .animation(.easeInOut, value: withPassword)
 
             Section {
@@ -246,25 +247,33 @@ private struct InJamView: View {
                 .buttonStyle(.plain)
                 .padding(.vertical, 6)
             }
+            .listRowBackground(Theme.c30hi)
 
+            // like a "This phone" device card
             Section("Where it plays") {
-                if host {
-                    Label {
-                        VStack(alignment: .leading) {
-                            Text("On this iPhone")
-                            Text("And the speaker or Bluetooth device it's connected to.").font(.footnote).foregroundStyle(Theme.muted)
-                        }
-                    } icon: { Image(systemName: "hifispeaker.fill") }
-                } else {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(host ? "This phone" : "\(state.host ?? "The host")'s phone").font(.system(size: 24, weight: .heavy))
+                        Text(state.current.map { "\($0.title) – \($0.artist ?? "")" } ?? "Nothing playing")
+                            .font(.subheadline).foregroundStyle(Theme.accentLight).lineLimit(1)
+                        Text(host ? "And the speaker or Bluetooth device it's connected to" : "Its speaker or Bluetooth device")
+                            .font(.footnote).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    Image(systemName: "iphone").font(.system(size: 34)).foregroundStyle(Theme.accentLight)
+                }
+                .padding(.vertical, 6)
+                if !host {
                     Toggle(isOn: $jam.playAlong) {
                         VStack(alignment: .leading) {
                             Text("Play on this iPhone too")
-                            Text("In sync with \(state.host ?? "the host")'s phone: for your own headphones or speaker.").font(.footnote).foregroundStyle(Theme.muted)
+                            Text("In sync, for your own headphones or speaker.").font(.footnote).foregroundStyle(Theme.muted)
                         }
                     }
                     .tint(Color(red: 0.2, green: 0.78, blue: 0.35))
                 }
             }
+            .listRowBackground(Theme.c30hi)
 
             Section {
                 Text(jam.link).font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
@@ -285,8 +294,9 @@ private struct InJamView: View {
                 .buttonStyle(.plain)
                 .font(.subheadline.weight(.semibold))
             } header: { Text("Invite") } footer: {
-                Text("People on the same Wi-Fi find the Jam with Tunio's Jam button. The link works from anywhere your home server can be reached.")
+                Text("People nearby find the Jam with Tunio's Jam button (Bluetooth, or the same Wi-Fi). The link works from anywhere your home server can be reached.")
             }
+            .listRowBackground(Theme.c30hi)
 
             Section {
                 if state.upNext.isEmpty {
@@ -309,6 +319,7 @@ private struct InJamView: View {
                     jam.move(state.upNext[f].qid, to: state.index + 1 + (to > f ? to - 1 : to))
                 }
             } header: { Text("Up next") }
+            .listRowBackground(Theme.c30hi)
             .environment(\.editMode, .constant(.active))
 
             Section {
@@ -316,6 +327,7 @@ private struct InJamView: View {
                     Text(host ? "End the Jam for everyone" : "Leave the Jam").frame(maxWidth: .infinity)
                 }
             }
+            .listRowBackground(Theme.c30hi)
         }
     }
 }
