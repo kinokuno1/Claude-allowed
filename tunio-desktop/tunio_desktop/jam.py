@@ -301,17 +301,15 @@ def page(jam_id: str, summary: dict | None) -> str:
     host = html.escape((summary or {}).get("host") or "")
     sub = f"Hosted by {host} · {summary['members']} listening" if summary else "Ask the host for a new link."
     lock = " · password needed" if summary and summary.get("locked") else ""
-    btn = ('<a class="btn" id="go" href="#">Open in Tunio</a><p class="muted">Tunio must be installed on this phone.</p>'
+    btn = ('<a class="btn" id="go" href="#">Open in Tunio</a><p class="muted" style="margin-top:12px">Tunio must be installed on this phone.</p>'
            if summary else "")
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>{name}</title>
-<meta name="viewport" content="width=device-width,initial-scale=1"><style>
-:root{{color-scheme:dark}}body{{margin:0;font:16px/1.5 system-ui,sans-serif;color:#F7F7FA;background:#0E0E12;min-height:100vh;
-display:flex;align-items:center;justify-content:center}}main{{max-width:420px;padding:28px 20px;text-align:center}}
-.disc{{width:96px;height:96px;border-radius:24px;background:#252231;margin:0 auto 18px;display:flex;align-items:center;
-justify-content:center;font-size:44px}}h1{{margin:0 0 6px;font-size:28px}}.muted{{color:#B5B3C2;font-size:14px}}
-.btn{{display:inline-block;margin-top:22px;background:#fff;color:#0E0E12;border-radius:999px;padding:14px 26px;
-font:700 17px system-ui;text-decoration:none}}</style></head><body><main><div class="disc">♫</div>
-<h1>{name}</h1><p class="muted">{sub}{lock}</p>{btn}
+    from .webstyle import HEAD
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>{name}</title>{HEAD}
+<style>main{{max-width:420px;min-height:100vh;display:flex;flex-direction:column;justify-content:center;text-align:center}}
+.disc{{width:96px;height:96px;margin:0 auto 20px;border-radius:24px;background:var(--card);border:1px solid var(--line);
+display:flex;align-items:center;justify-content:center;font-size:44px}}[data-theme=dots] .disc{{border-radius:50%}}
+.btn{{margin-top:24px;align-self:center}}</style></head><body><main><div class="disc">♫</div>
+<h1>{name}</h1><p class="sub">{sub}{lock}</p>{btn}
 <script>var id={json.dumps(jam_id)};var a=document.getElementById('go');
 var q='jam?u='+encodeURIComponent(location.origin)+'&j='+encodeURIComponent(id);
 if(a){{a.href='tunio://'+q;

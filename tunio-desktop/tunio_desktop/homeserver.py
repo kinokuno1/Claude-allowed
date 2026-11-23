@@ -30,7 +30,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
-from . import core, engine, jam
+from . import core, engine, jam, webstyle
 from .paths import DATA_DIR
 
 VERSION = 1
@@ -560,7 +560,8 @@ def make_handler(srv: Server):
             if u.path in ("/", "/index.html"):
                 if not srv.authorized(self):
                     return self._send(200, page_login(), "text/html; charset=utf-8")
-                return self._send(200, page_status(srv, self.headers.get("Host", "")), "text/html; charset=utf-8")
+                proto = "https" if self.headers.get("X-Forwarded-Proto", "").lower() == "https" else "http"  # behind Caddy
+                return self._send(200, page_status(srv, self.headers.get("Host", ""), proto), "text/html; charset=utf-8")
             if not srv.authorized(self):
                 return self._json({"error": "wrong password"}, 401)
             if u.path == "/api/ping":
@@ -750,63 +751,74 @@ def make_handler(srv: Server):
 
 # ---------------------------------------------------------------- pages (status page in a browser)
 
-STYLE = """<meta name="viewport" content="width=device-width,initial-scale=1"><style>
-:root{color-scheme:dark}body{margin:0;font:16px/1.5 system-ui,sans-serif;color:#F7F7FA;
-background:linear-gradient(135deg,#1E1C28,#0E0E12 60%,#2a1530);min-height:100vh}
-main{max-width:640px;margin:0 auto;padding:24px 16px}h1{margin:0 0 4px}.muted{color:#C8C8D2;font-size:14px}
-.card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:16px 18px;margin:14px 0}
-input,textarea{width:100%;box-sizing:border-box;background:rgba(0,0,0,.35);color:#F7F7FA;border:1px solid rgba(255,255,255,.2);
-border-radius:12px;padding:10px;font:inherit}textarea{min-height:90px;font-size:13px}
-button,.btn{display:inline-block;margin-top:10px;background:linear-gradient(135deg,#7C4DEE,#D4337F);color:#fff;border:0;
-border-radius:999px;padding:10px 18px;font:600 15px system-ui;text-decoration:none;cursor:pointer}
-.ghost{background:rgba(255,255,255,.12)}ul{padding-left:18px;margin:6px 0}li{font-size:14px}.big{font-size:28px;font-weight:700}
-.row{display:flex;gap:24px;flex-wrap:wrap}</style>"""
+STYLE = webstyle.HEAD
 
 
 def page_login(error: str = "") -> str:
-    err = f'<p style="color:#FECACA">{html.escape(error)}</p>' if error else ""
+    err = f'<p class="err">{html.escape(error)}</p>' if error else ""
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>Tunio server</title>{STYLE}</head><body><main>
-<h1>Tunio server</h1><p class="muted">Enter the password the installer showed you.</p>{err}
-<form method="post" action="/login" class="card"><input name="password" type="password" autofocus
-placeholder="xxxx-xxxx-xxxx" autocomplete="current-password"><button>Open</button></form></main></body></html>"""
+<header><h1>Tunio server</h1>{webstyle.THEMES}</header>
+<p class="sub">Enter the password the installer showed you.</p>
+<form method="post" action="/login" class="card" style="margin-top:20px">{err}
+<input name="password" type="password" autofocus placeholder="xxxx-xxxx-xxxx" autocomplete="current-password">
+<div class="row" style="margin-top:12px"><button>Open</button></div></form></main></body></html>"""
 
 
 def _gb(b) -> str:
     return f"{b / 1024 ** 3:.1f} GB"
 
 
-def page_status(srv: Server, host: str) -> str:
+def page_status(srv: Server, host: str, proto: str = "http") -> str:
     s = srv.status()
     st = srv.night.state
-    origin = "http://" + (host or f"{lan_ip()}:{srv.cfg['port']}")
+    origin = f"{proto}://" + (host or f"{lan_ip()}:{srv.cfg['port']}")
     pair = f"tunio://pair?u={quote(origin, safe='')}&k={quote(srv.cfg['password'], safe='')}"
     recent = "".join(
-        f"<li>{html.escape(v.get('artist') or '')} – {html.escape(v.get('title') or v['file'])}"
-        f"{' <span class=muted>(charts)</span>' if v.get('via') == 'charts' else ''}</li>"
+        f"<li><span style='flex:1'>{html.escape(v.get('artist') or '')} – {html.escape(v.get('title') or v['file'])}</span>"
+        f"{'<span class=tag>charts</span>' if v.get('via') == 'charts' else ''}</li>"
         for v in srv.store.recent(25)) or "<li class=muted>Nothing yet: play a song on your phone.</li>"
-    filling = f"<p>Filling now: {html.escape(srv.night.progress)}</p>" if srv.night.running else ""
+    jams = "".join(
+        f"<li><span class=dot></span><span style='flex:1'>{html.escape(j['name'])}</span>"
+        f"<span class=muted>{j['members']} listening</span>{'<span class=tag>password</span>' if j['locked'] else ''}</li>"
+        for j in srv.jams.list())
+    if srv.night.running:
+        run = f"<p class='row live muted'><span class=dot></span>Filling now: {html.escape(srv.night.progress)}</p>"
+    else:
+        run = (f"<p class='row muted'><span class=dot></span>Last run: {html.escape(st.get('last_fill', 'never'))}"
+               f" {html.escape(st.get('last_fill_result', ''))}</p>")
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>Tunio server</title>{STYLE}</head><body><main>
-<h1>Tunio server</h1><p class="muted">Address for the app: <b>{html.escape(origin)}</b> · yt-dlp {html.escape(s['ytdlp'])}</p>
-<div class="card row"><div><div class="big">{s['songs']}</div><div class="muted">songs ready</div></div>
-<div><div class="big">{_gb(s['bytes'])}</div><div class="muted">of {_gb(s['maxBytes'])} max</div></div>
-<div><div class="big">{_gb(s['diskFree'])}</div><div class="muted">free on disk</div></div></div>
-<div class="card"><b>Connect your phone</b><p class="muted">Open this page on your phone and tap the button
-(Tunio must be installed).</p><a class="btn" href="{html.escape(pair)}">Connect Tunio on this phone</a></div>
-<form class="card" method="post" action="/settings"><b>Nightly charts</b>
-<p class="muted">Every night at {int(srv.cfg['night_hour'])}:00 the server downloads the songs of these playlists
-(Spotify, YouTube or SoundCloud links, one per line, up to {int(srv.cfg['prefill_max'])} songs each).
-Last run: {html.escape(st.get('last_fill', 'never'))} {html.escape(st.get('last_fill_result', ''))}</p>{filling}
-<textarea name="prefill">{html.escape(chr(10).join(srv.cfg['prefill']))}</textarea>
-<p class="muted">Maximum space for songs (GB). The songs not played for the longest time are removed first.</p>
-<input name="max_gb" type="number" min="1" step="1" value="{float(srv.cfg['max_gb']):g}">
-<button>Save</button></form>
-<form method="post" action="/fill"><button class="ghost">Fill with the charts now</button></form>
-<div class="card"><b>Latest songs</b><ul>{recent}</ul></div></main></body></html>"""
+<header><h1>Tunio server</h1>{webstyle.THEMES}</header>
+<p class="sub">Address for the app<br><code>{html.escape(origin)}</code><br>yt-dlp {html.escape(s['ytdlp'])}</p>
+
+<div class="label">Library</div>
+<div class="stats">
+<div class="card"><div class="big">{s['songs']}</div><div class="muted">songs ready</div></div>
+<div class="card"><div class="big">{_gb(s['bytes'])}</div><div class="muted">of {_gb(s['maxBytes'])} max</div></div>
+<div class="card"><div class="big">{_gb(s['diskFree'])}</div><div class="muted">free on disk</div></div></div>
+
+<div class="label">Connect a phone</div>
+<div class="card"><p class="muted">Open this page on your phone and tap the button (Tunio must be installed).</p>
+<a class="btn" href="{html.escape(pair)}">Connect Tunio on this phone</a></div>
+{f'<div class="label">Jams now</div><div class="card"><ul class="list">{jams}</ul></div>' if jams else ''}
+<div class="label">Nightly playlists</div>
+<form class="card" method="post" action="/settings">
+<p class="muted">Every night at {int(srv.cfg['night_hour'])}:00 the server gets the songs of these playlists, so they start
+instantly. Spotify, YouTube or SoundCloud links, one per line, up to {int(srv.cfg['prefill_max'])} songs each.</p>
+{run}
+<textarea name="prefill" aria-label="Playlists">{html.escape(chr(10).join(srv.cfg['prefill']))}</textarea>
+<p class="muted" style="margin:16px 0 8px">Maximum space for songs (GB). The songs not played for the longest time go first.</p>
+<input name="max_gb" type="number" min="1" step="1" value="{float(srv.cfg['max_gb']):g}" aria-label="Maximum space in GB">
+<div class="row" style="margin-top:14px"><button>Save</button>
+<button class="ghost" formaction="/fill">Fill now</button></div></form>
+
+<div class="label">Latest songs</div>
+<div class="card"><ul class="list">{recent}</ul></div></main></body></html>"""
 
 
 PAIR_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Connect Tunio</title>""" + STYLE + """</head>
-<body><main><h1>Connect Tunio</h1><p class="muted">Tap the button to connect the Tunio app on this phone to your
-server.</p><a class="btn" id="go" href="#">Connect Tunio</a>
+<body><main><header><h1>Connect Tunio</h1>""" + webstyle.THEMES + """</header>
+<p class="sub">Tap the button to connect the Tunio app on this phone to your server.</p>
+<div class="card" style="margin-top:20px"><a class="btn" id="go" href="#">Connect Tunio</a></div>
 <script>var k=decodeURIComponent(location.hash.slice(1));document.getElementById('go').href=
 'tunio://pair?u='+encodeURIComponent(location.origin)+'&k='+encodeURIComponent(k);</script></main></body></html>"""
 
