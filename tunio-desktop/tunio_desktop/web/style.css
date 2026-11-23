@@ -306,7 +306,6 @@ h1.title { font-size: clamp(24px, 3.6cqi, 40px); font-weight: 800; letter-spacin
 .coll-actions { display: flex; align-items: center; gap: 16px; padding: 8px 0 20px; }
 .coll-actions .icon-btn { width: 40px; height: 40px; }
 .coll-actions .icon-btn svg { width: 28px; height: 28px; }
-@media (max-width: 760px) { .coll-head { flex-direction: column; align-items: flex-start; } .coll-head .art { width: 160px; height: 160px; } }
 
 /* settings */
 .set-row { display: flex; align-items: center; gap: 16px; }
@@ -323,9 +322,11 @@ kbd { font: 12px/1 inherit; padding: 3px 6px; border-radius: 4px; background: va
 .np-sec .panel-head h2 { font-size: clamp(13px, 4.8cqi, 16px); }
 #np-song { --pad: clamp(10px, 5cqi, 18px); --tfs: clamp(15px, 7cqi, 28px); --afs: clamp(12px, 4.4cqi, 15px); }
 .np-songbody { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 var(--pad) var(--pad); }
-.np-top { flex: none; display: flex; flex-direction: column; align-items: center; width: 100%; }
-.np-ly { flex: 1; min-height: 90px; display: flex; width: 100%; margin-top: calc(var(--pad) * .8); border-radius: 10px; overflow: hidden; container-type: size; }
-.np-cover { --size: max(48px, min(calc(100cqi - 2 * var(--pad)), calc(56cqh - 46px - var(--tfs) * 2.6 - var(--afs) * 1.6 - var(--pad) * 2.4)));
+.np-top { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; }
+/* the lyrics preview is a short strip under the song */
+#np-song { container-name: npsong; --lyh: clamp(92px, 22cqh, 150px); }
+.np-ly { flex: none; height: var(--lyh); display: flex; width: 100%; margin-top: calc(var(--pad) * .8); border-radius: 10px; overflow: hidden; container-type: size; }
+.np-cover { --size: max(48px, min(calc(100cqi - 2 * var(--pad)), calc(100cqh - 46px - var(--tfs) * 2.6 - var(--afs) * 1.6 - var(--pad) * 3.2 - var(--lyh))));
   width: var(--size); height: var(--size); flex: none; border-radius: clamp(6px, 3cqi, 10px); overflow: hidden; background: var(--c30-hi);
   position: relative; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
 .np-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -471,18 +472,32 @@ kbd { font: 12px/1 inherit; padding: 3px 6px; border-radius: 4px; background: va
 .ly-msg .small { font-size: 15px; font-weight: 500; color: rgba(255,255,255,.8); }
 .ly-credit { text-align: center; font-size: 12px; color: rgba(255,255,255,.72); margin: -38vh 0 0; padding-bottom: 40px; }
 
-/* ------------------------------------------------------------------ like heart: fills from the inside in 10 frames, then pops */
-.heart .ho { fill: currentColor; }
-.heart .hf { fill: var(--pink-light); transform-box: view-box; transform-origin: 12px 12.5px; transform: scale(0); }
-.heart.on .hf { transform: scale(1); }
+/* ------------------------------------------------------------------ like heart: fills up from the bottom like liquid, then pops */
+.heart { overflow: visible; }
+.heart .ho { fill: currentColor; transition: fill .2s; }
+.heart .hf { fill: var(--pink-light); clip-path: inset(100% 0 0 0); }
+.heart.on .hf { clip-path: inset(0 0 0 0); }
 .heart.on .ho { fill: var(--pink-light); }
-.heart.pop .hf { animation: heart-fill .32s steps(10, jump-end) both; }
-.heart.pop { animation: heart-pop .42s cubic-bezier(.3, 1.6, .5, 1) .25s both; transform-origin: center; }
-.heart.unpop { animation: heart-out .25s ease-out; transform-origin: center; }
-@keyframes heart-fill { from { transform: scale(0); } to { transform: scale(1); } }
-@keyframes heart-pop { 0% { transform: scale(1); } 45% { transform: scale(1.32); } 100% { transform: scale(1); } }
-@keyframes heart-out { 0% { transform: scale(1); } 40% { transform: scale(.82); } 100% { transform: scale(1); } }
-@media (prefers-reduced-motion: reduce) { .heart.pop, .heart.pop .hf, .heart.unpop { animation: none; } }
+.heart .burst circle { fill: var(--pink-light); opacity: 0; transform-box: fill-box; transform-origin: center; }
+.heart.pop .hf { animation: heart-rise .42s cubic-bezier(.45, 0, .2, 1) both; }
+.heart.pop { animation: heart-pop .45s cubic-bezier(.3, 1.7, .5, 1) .36s both; transform-origin: center; }
+.heart.pop .burst circle { animation: heart-burst .5s cubic-bezier(.2, .8, .3, 1) .4s both; }
+.heart.unpop .hf { animation: heart-drain .28s ease-in both; }
+.heart.unpop { animation: heart-out .3s ease-out; transform-origin: center; }
+@keyframes heart-rise { 0% { clip-path: inset(100% 0 0 0); } 100% { clip-path: inset(0 0 0 0); } }
+@keyframes heart-drain { 0% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(100% 0 0 0); } }
+@keyframes heart-pop { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes heart-out { 0% { transform: scale(1); } 45% { transform: scale(.8); } 100% { transform: scale(1); } }
+@keyframes heart-burst { 0% { opacity: 1; transform: translate(0, 0) scale(1); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.2); } }
+@media (prefers-reduced-motion: reduce) { .heart.pop, .heart.pop .hf, .heart.unpop, .heart.unpop .hf, .heart .burst circle { animation: none !important; } }
+
+/* ------------------------------------------------------------------ play/pause: two shapes that morph into each other */
+.ppi path { fill: currentColor; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; transition: d .32s cubic-bezier(.5, 0, .2, 1); }
+.ppi .pa { d: path("M8 5.2L13.5 8.7L13.5 15.3L8 18.8Z"); }
+.ppi .pb { d: path("M13.5 8.7L18.6 12L18.6 12L13.5 15.3Z"); }
+.ppi.pause .pa { d: path("M6.5 5.5L10.2 5.5L10.2 18.5L6.5 18.5Z"); }
+.ppi.pause .pb { d: path("M13.8 5.5L17.5 5.5L17.5 18.5L13.8 18.5Z"); }
+@media (prefers-reduced-motion: reduce) { .ppi path { transition: none; } }
 
 /* ------------------------------------------------------------------ lyrics view: toolbar */
 .ly-song { display: flex; align-items: center; gap: 12px; padding: 4px 10px 4px 4px; border-radius: 12px; min-width: 0; max-width: 46%; text-align: left; }
@@ -493,12 +508,19 @@ kbd { font: 12px/1 inherit; padding: 3px 6px; border-radius: 4px; background: va
 .lyc { view-transition-name: ly-cover; }
 .lyt { view-transition-name: ly-title; }
 ::view-transition-group(ly-cover), ::view-transition-group(ly-title) { animation-duration: .55s; animation-timing-function: cubic-bezier(.2, .85, .2, 1); }
-.seg { display: flex; padding: 3px; border-radius: 999px; background: rgba(255,255,255,.12); }
-.seg button { padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,.85); transition: background .2s, color .2s; }
-.seg button.on { background: #fff; color: #111; }
-.pill3d { height: 34px; padding: 0 14px; border-radius: 999px; font-weight: 900; font-size: 13px; letter-spacing: .04em; color: #fff;
-  background: rgba(255,255,255,.12); transition: background .2s, transform .2s; }
+.seg { position: relative; display: flex; padding: 3px; border-radius: 999px; background: rgba(255,255,255,.12); }
+.seg::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px; background: #fff;
+  transition: transform .34s cubic-bezier(.3, 1.35, .5, 1); }
+.seg.at2::before { transform: translateX(100%); }
+.seg button { position: relative; z-index: 1; width: 40px; height: 30px; display: grid; place-items: center; border-radius: 999px; color: rgba(255,255,255,.85); transition: color .25s; }
+.seg button svg { width: 20px; height: 20px; }
+.seg button.on { color: #111; }
+.pill3d { height: 36px; width: 44px; display: grid; place-items: center; border-radius: 999px; color: #fff;
+  background: rgba(255,255,255,.12); transition: background .2s, color .2s, transform .2s; }
+.pill3d svg { width: 22px; height: 22px; }
 .pill3d:hover { transform: scale(1.05); }
+.pill3d.on svg { animation: cubes-on .5s cubic-bezier(.3, 1.5, .5, 1); }
+@keyframes cubes-on { 0% { transform: rotate(-25deg) scale(.7); } 100% { transform: none; } }
 .pill3d.on { background: #fff; color: #111; }
 
 /* ------------------------------------------------------------------ lyrics view: big player card */
@@ -562,3 +584,49 @@ kbd { font: 12px/1 inherit; padding: 3px 6px; border-radius: 4px; background: va
 .lyr-dots i { width: 7px; border-radius: 4px; background: #fff; animation: lyr 1s ease-in-out infinite; height: 30%; }
 .lyr-dots i:nth-child(2) { animation-delay: .12s; } .lyr-dots i:nth-child(3) { animation-delay: .24s; } .lyr-dots i:nth-child(4) { animation-delay: .36s; } .lyr-dots i:nth-child(5) { animation-delay: .48s; }
 @keyframes lyr { 0%, 100% { height: 25%; opacity: .6; } 50% { height: 100%; opacity: 1; } }
+
+/* ------------------------------------------------------------------ layouts by size (each part rearranges instead of cropping) */
+/* Now playing, short: small cover next to the title, lyrics fill the rest */
+@container npsong (max-height: 420px) {
+  .np-top { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; }
+  .np-cover { --size: clamp(48px, 22cqh, 84px); }
+  .np-info { margin-top: 0; flex: 1; min-width: 0; }
+  .np-info .t { font-size: clamp(14px, 5cqi, 18px); -webkit-line-clamp: 1; }
+  .np-ly { flex: 1; height: auto; min-height: 0; }
+}
+/* very short: just the song */
+@container npsong (max-height: 210px) {
+  .np-ly { display: none; }
+  .np-songbody { justify-content: center; }
+}
+/* wide and not too short: cover on the left, title and lyrics on the right */
+@container npsong (min-aspect-ratio: 5 / 4) and (min-height: 421px) {
+  .np-songbody { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); column-gap: var(--pad); }
+  .np-top { justify-content: flex-start; }
+  .np-cover { --size: max(48px, min(46cqi, calc(100cqh - 46px - var(--tfs) * 2.6 - var(--afs) * 1.6 - var(--pad) * 3))); }
+  .np-top .np-info { width: var(--size); }
+  .np-ly { height: auto; margin-top: 0; }
+}
+/* queue */
+#np-queue { container-name: npq; }
+@container npq (max-width: 240px) { .q-item .art { display: none; } }
+@container npq (max-height: 130px) { .q-item:not(:first-child) { display: none; } }
+/* lyrics preview so small that only the line being sung fits */
+@container (max-height: 110px) {
+  .ly-card h3 { display: none; }
+  .ly-card { padding-top: calc(var(--pad) * .6); }
+  .ly-view { -webkit-mask-image: none; mask-image: none; }
+  .ly-blur { display: none; }
+}
+/* Your Library, wide: a grid of covers (like Spotify's expanded library) */
+#side { container-name: side; }
+@container side (min-width: 440px) {
+  #side .panel-scroll.full { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; align-content: start; }
+  #side .panel-scroll.full .lib-item { flex-direction: column; align-items: stretch; gap: 8px; position: relative; }
+  #side .panel-scroll.full .lib-item .art { width: 100%; height: auto; aspect-ratio: 1; }
+  #side .panel-scroll.full .lib-item .speaker { position: absolute; right: 14px; top: 14px; }
+}
+/* the page, narrow: playlist header stacks */
+@container (max-width: 640px) {
+  .coll-head { flex-direction: column; align-items: flex-start; }
+}

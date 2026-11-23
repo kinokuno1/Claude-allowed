@@ -127,12 +127,32 @@ function newPlaylist() {
 // ------------------------------------------------------------------ building blocks
 const art = (url, cls = "art", tid = "") => `<div class="${cls}"${tid ? ` data-tid="${esc(tid)}"` : ""}>${url ? `<img src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("music_note")}</div>`;
 const tart = (t, cls = "art") => art(t.thumbnail, cls, t.id);
+const ppShown = new Map();
+/** Play/pause icon: two shapes that morph between ▶ and ❚❚. `key` names the button. */
+function ppIcon(playing, key) {
+  const was = ppShown.has(key) ? ppShown.get(key) : playing;
+  return `<svg class="i ppi ${was ? "pause" : ""}" data-pk="${esc(key)}" data-want="${playing ? 1 : 0}" viewBox="0 0 24 24" aria-hidden="true"><path class="pa"/><path class="pb"/></svg>`;
+}
+/** After a render: morph every play/pause icon to its new state. */
+function syncPP() {
+  requestAnimationFrame(() => document.querySelectorAll(".ppi").forEach((el) => {
+    const want = el.dataset.want === "1";
+    el.classList.toggle("pause", want); ppShown.set(el.dataset.pk, want);
+  }));
+}
+function setPP(el, playing, key) {
+  if (!el) return;
+  const svg = el.querySelector(".ppi");
+  if (svg) svg.dataset.want = playing ? 1 : 0; else el.innerHTML = ppIcon(playing, key);
+  syncPP();
+}
 let justLiked = { id: null, at: 0 };
 /** Like heart. Right after liking, it fills from the inside in 10 frames and pops. */
 function heart(t) {
   const liked = S.lib.liked.includes(t.id), pop = justLiked.id === t.id && Date.now() - justLiked.at < 900;
+  const dots = [0, 60, 120, 180, 240, 300].map((a) => `<circle cx="12" cy="12" r="1.4" style="--dx:${(Math.cos(a * Math.PI / 180) * 11).toFixed(1)}px;--dy:${(Math.sin(a * Math.PI / 180) * 11).toFixed(1)}px"/>`).join("");
   return `<svg class="i heart ${liked ? "on" : ""} ${pop ? (liked ? "pop" : "unpop") : ""}" viewBox="0 0 24 24" aria-hidden="true">
-    <path class="hf" d="${ICONS.favorite}"/><path class="ho" d="${ICONS.favorite_border}"/></svg>`;
+    <g class="burst">${dots}</g><path class="hf" d="${ICONS.favorite}"/><path class="ho" d="${ICONS.favorite_border}"/></svg>`;
 }
 
 // A cover that fails to load (expired link, removed video…) shows a note instead and is looked up again.
@@ -186,7 +206,7 @@ function playContext(r) {
   if (!tracks.length) return toast("Nothing to play here yet");
   Player.play(tracks, Player.shuffle ? Math.floor(Math.random() * tracks.length) : 0, Player.shuffle, r);
 }
-const fab = (ctx, cls = "") => `<button class="fab ${cls} ${ctxPlaying(ctx) ? "live" : ""}" data-playctx="${ctx}" title="${ctxPlaying(ctx) ? "Pause" : "Play"}">${icon(ctxPlaying(ctx) && !audio.paused ? "pause" : "play_arrow")}</button>`;
+const fab = (ctx, cls = "") => `<button class="fab ${cls} ${ctxPlaying(ctx) ? "live" : ""}" data-playctx="${ctx}" title="${ctxPlaying(ctx) ? "Pause" : "Play"}">${ppIcon(ctxPlaying(ctx) && !audio.paused, "ctx:" + ctx)}</button>`;
 
 // Track tables: # · Title · Source · ♥ · duration · ⋯ (Spotify-style; double-click or the ▶ on hover plays).
 const LISTS = {}; // listKey -> tracks currently shown
@@ -196,7 +216,7 @@ function trackTable(key, tracks, { playlistId, compact = false, head = true, off
   const rows = tracks.map((t, i) => {
     const isCur = cur === t.id, liked = S.lib.liked.includes(t.id);
     return `<div class="row-track${isCur ? " current" : ""}" data-play="${key}" data-i="${i}" tabindex="0">
-      <div class="num">${isCur ? eqBars() : `<span class="n">${offset + i + 1}</span>`}<span class="p" data-rowplay title="Play">${icon(isCur && !audio.paused ? "pause" : "play_arrow")}</span></div>
+      <div class="num">${isCur ? eqBars() : `<span class="n">${offset + i + 1}</span>`}<span class="p" data-rowplay title="Play">${ppIcon(isCur && !audio.paused, "row:" + key + ":" + t.id)}</span></div>
       <div class="ttl">${tart(t)}<div class="ellip"><div class="t ellip">${esc(t.title)}</div>
         <div class="s">${badge(t.source)}${offlineMark(t)}<span class="ellip">${esc(t.artist || "")}</span></div></div></div>
       <div class="col-album ellip">${SOURCES[t.source]?.[0] || "Web"}</div>
@@ -348,7 +368,7 @@ function render(navigated) {
     if (r === "search") renderSearchResults();
   }
   if (r !== "lyrics") sc.scrollTop = navigated ? 0 : top;
-  updateTop(); renderSide(); updateBar(); renderNp();
+  updateTop(); renderSide(); updateBar(); renderNp(); syncPP();
 }
 
 function greeting() { const h = new Date().getHours(); return h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 18 ? "Good afternoon" : "Good evening"; }
@@ -361,7 +381,7 @@ function homeHtml() {
   const empty = !recent.length && !S.lib.liked.length && !S.lib.playlists.length;
   const shelf = (title, items, more) => items ? `<div class="sec-head"><h2>${title}</h2><span class="spacer"></span>${more || ""}</div><div class="shelf">${items}</div>` : "";
   const recentCards = recent.map((t, i) => `<div class="card" data-playcard="recent" data-i="${i}" role="button" tabindex="0" title="${esc(t.title)}">
-      <div class="cover">${tart(t)}<button class="fab ${Player.current()?.id === t.id && isPlaying() ? "live" : ""}" data-playcard="recent" data-i="${i}" title="Play">${icon(Player.current()?.id === t.id && !audio.paused ? "pause" : "play_arrow")}</button></div>
+      <div class="cover">${tart(t)}<button class="fab ${Player.current()?.id === t.id && isPlaying() ? "live" : ""}" data-playcard="recent" data-i="${i}" title="Play">${ppIcon(Player.current()?.id === t.id && !audio.paused, "card:" + t.id)}</button></div>
       <div class="t ellip">${esc(t.title)}</div><div class="a">${esc(t.artist || SOURCES[t.source]?.[0])}</div></div>`).join("");
   const plCards = S.lib.playlists.map((p) => `<div class="card" data-go="pl:${p.id}" role="button" tabindex="0">
       <div class="cover">${art(plCover(p))}${fab("pl:" + p.id)}</div>
@@ -475,7 +495,7 @@ function collectionHtml(r) {
     <div class="coll-head">${collArt(r)}<div style="min-width:0"><div class="kind">${r === "downloads" ? "Offline" : "Playlist"}</div>
       <h1>${esc(title)}</h1><div class="stats"><b>Tunio</b> · ${tracks.length} songs<span class="muted">${total ? `, about ${total >= 3600 ? `${Math.floor(total / 3600)} hr ` : ""}${Math.round(total % 3600 / 60)} min` : ""}</span></div></div></div>
     <div class="coll-actions">
-      <button class="fab xl" data-playctx="${r}" title="Play" ${tracks.length ? "" : "disabled"}>${icon(ctxPlaying(r) && !audio.paused ? "pause" : "play_arrow")}</button>
+      <button class="fab xl" data-playctx="${r}" title="Play" ${tracks.length ? "" : "disabled"}>${ppIcon(ctxPlaying(r) && !audio.paused, "ctx:" + r)}</button>
       <button class="icon-btn ${Player.shuffle ? "on" : ""}" id="shuffle" title="Shuffle play">${icon("shuffle")}</button>
       ${dl}
       ${pl ? `<button class="icon-btn" data-collmenu id="collmore" title="More options">${icon("more_vert")}</button>` : ""}</div>
@@ -893,7 +913,7 @@ function setupBar() {
       <div class="ctrls">
         <button class="icon-btn" id="bshuf" title="Enable shuffle">${icon("shuffle")}</button>
         <button class="icon-btn skip" id="bprev" title="Previous">${icon("skip_previous")}</button>
-        <button class="pp" id="bplay" title="Play">${icon("play_arrow")}</button>
+        <button class="pp" id="bplay" title="Play">${ppIcon(false, "bar")}</button>
         <button class="icon-btn skip" id="bnext" title="Next">${icon("skip_next")}</button>
         <button class="icon-btn" id="brep" title="Enable repeat">${icon("repeat")}</button>
       </div>
@@ -932,7 +952,8 @@ function updateBar() {
   }
   const pp = $("#bplay");
   pp.disabled = !t;
-  pp.innerHTML = Player.preparing ? `<span class="spinner" style="border-top-color:var(--c10)"></span>` : icon(playing ? "pause" : "play_arrow");
+  if (Player.preparing) { if (!pp.querySelector(".spinner")) pp.innerHTML = `<span class="spinner" style="border-top-color:var(--c10)"></span>`; }
+  else { if (pp.querySelector(".spinner")) pp.innerHTML = ""; setPP(pp, playing, "bar"); }
   pp.title = playing ? "Pause" : "Play";
   $("#bshuf").classList.toggle("on", Player.shuffle); $("#bshuf").title = Player.shuffle ? "Disable shuffle" : "Enable shuffle";
   $("#brep").classList.toggle("on", Player.repeat !== "off"); $("#brep").innerHTML = icon(Player.repeat === "one" ? "repeat_one" : "repeat");
@@ -944,7 +965,7 @@ function updateBar() {
   $("#bnp").classList.toggle("on", npVisible());
   $("#bly").classList.toggle("on", route() === "lyrics"); $("#bly").disabled = !t;
   if ($("#bcplay")) {
-    $("#bcplay").innerHTML = icon(playing ? "pause" : "play_arrow");
+    setPP($("#bcplay"), playing, "bigcard");
     $("#bcshuf").classList.toggle("on", Player.shuffle); $("#bcrep").classList.toggle("on", Player.repeat !== "off");
     $("#bcrep").innerHTML = icon(Player.repeat === "one" ? "repeat_one" : "repeat");
   }
@@ -1055,14 +1076,17 @@ function lyricsHtml() {
     <div class="ly-top">
       ${LY.card ? "" : `<button class="ly-song" id="lysong" title="Show the big player">${art(cover, "art lyc")}<div class="ellip"><div class="t ellip lyt">${esc(t.title)}</div><div class="a ellip">${esc(t.artist || "")}</div></div></button>`}
       <span class="spacer"></span>
-      <div class="seg" role="group" aria-label="Highlight">
-        <button class="${LY.mode === "line" ? "on" : ""}" data-lymode="line" title="Highlight whole lines">Line</button>
-        <button class="${LY.mode === "word" ? "on" : ""}" data-lymode="word" title="Highlight word by word">Word</button></div>
-      <button class="pill3d ${LY.d3 ? "on" : ""}" id="ly3dbtn" title="3D: the camera follows each word, in time with the beat">3D</button>
+      <div class="seg ${LY.mode === "word" ? "at2" : ""}" role="group" aria-label="Highlight">
+        <button class="${LY.mode === "line" ? "on" : ""}" data-lymode="line" title="Line by line" aria-label="Line by line">${LINE_ICON}</button>
+        <button class="${LY.mode === "word" ? "on" : ""}" data-lymode="word" title="Word by word" aria-label="Word by word">${WORD_ICON}</button></div>
+      <button class="pill3d ${LY.d3 ? "on" : ""}" id="ly3dbtn" title="3D: the camera follows each word, in time with the beat" aria-label="3D">${CUBES_ICON}</button>
       <button class="round" id="lyfocus" title="${focus ? "Show the side panels again" : "Fill the window with lyrics"}">${icon(focus ? "fullscreen_exit" : "fullscreen")}</button>
       <button class="round" id="lyclose" title="Close lyrics">${icon("close")}</button></div>
   </div>`;
 }
+const LINE_ICON = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="3" rx="1.5"/><rect x="3" y="10.5" width="13" height="3" rx="1.5" opacity=".55"/><rect x="3" y="16" width="16" height="3" rx="1.5" opacity=".55"/></svg>`;
+const WORD_ICON = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="9" width="6" height="6" rx="1.5"/><rect x="10" y="9" width="5" height="6" rx="1.5" opacity=".55"/><rect x="16.5" y="9" width="5" height="6" rx="1.5" opacity=".55"/><rect x="2.5" y="17" width="6" height="1.6" rx=".8"/></svg>`;
+const CUBES_ICON = `<svg class="i cubes" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M15.3 2.9L20.0 5.6L20.0 11.0L15.3 13.7L10.6 11.0L10.6 5.6Z M10.6 5.6L15.3 8.3L20.0 5.6 M15.3 8.3L15.3 13.7"/><path d="M8.7 10.3L13.4 13.0L13.4 18.4L8.7 21.1L4.0 18.4L4.0 13.0Z M4.0 13.0L8.7 15.7L13.4 13.0 M8.7 15.7L8.7 21.1"/></svg>`;
 /** The big player card in the lyrics view (the small title at the top left grows into it). */
 function bigCardHtml(t) {
   const playing = !audio.paused;
@@ -1072,7 +1096,7 @@ function bigCardHtml(t) {
     <div class="bc-ctrls">
       <button id="bcshuf" class="${Player.shuffle ? "on" : ""}" title="Shuffle">${icon("shuffle")}</button>
       <button id="bcprev" title="Previous">${icon("skip_previous")}</button>
-      <button id="bcplay" title="Play/pause">${icon(playing ? "pause" : "play_arrow")}</button>
+      <button id="bcplay" title="Play/pause">${ppIcon(playing, "bigcard")}</button>
       <button id="bcnext" title="Next">${icon("skip_next")}</button>
       <button id="bcrep" class="${Player.repeat !== "off" ? "on" : ""}" title="Repeat">${icon(Player.repeat === "one" ? "repeat_one" : "repeat")}</button></div>
     <div class="bc-prog"><span id="bct">0:00</span><div class="bc-bar" id="bcbar"><i id="bcf"></i></div><span id="bcd">${fmtOr(t.durationSec)}</span></div>
@@ -1093,7 +1117,11 @@ function bindLyrics() {
     audio.currentTime = Math.max(0, +line.dataset.t); if (audio.paused) audio.play(); Lyrics.paint();
   });
   document.querySelectorAll("[data-lymode]").forEach((b) => b.onclick = () => {
-    LY.mode = b.dataset.lymode; store.set("tunio.lyMode", LY.mode); render(false); Lyrics.paint();
+    if (LY.mode === b.dataset.lymode) return;
+    LY.mode = b.dataset.lymode; store.set("tunio.lyMode", LY.mode);
+    const seg = b.closest(".seg"); seg.classList.toggle("at2", LY.mode === "word");
+    seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    setTimeout(() => { render(false); Lyrics.paint(); }, 260); // let the highlight slide over first
   });
   $("#ly3dbtn")?.addEventListener("click", async () => {
     LY.d3 = !LY.d3; store.set("tunio.ly3d", LY.d3);
@@ -1246,8 +1274,29 @@ const Win = (() => {
     });
   }
   window.addEventListener("pywebviewready", init);
-  return { init };
+  return { init, get api() { return api; } };
 })();
+
+/** The mini player (a small window that stays on top when Tunio is minimized or closed) shows what's playing here
+ *  and sends its buttons back. */
+window.TunioRemote = {
+  cmd(name, arg) {
+    if (name === "toggle") Player.toggle();
+    if (name === "next") Player.next();
+    if (name === "prev") Player.prev();
+    if (name === "seek" && audio.duration) audio.currentTime = Math.max(0, Math.min(audio.duration, +arg));
+    if (name === "like") { const t = Player.current(); if (t) toggleLike(t); }
+  },
+};
+let lastReport = "";
+setInterval(() => {
+  const api = window.pywebview?.api; if (!api?.report) return;
+  const t = Player.current();
+  const st = t ? { id: t.id, title: t.title, artist: t.artist || "", cover: t.thumbnail || "", playing: !audio.paused, loading: Player.preparing,
+    time: audio.currentTime || 0, duration: (isFinite(audio.duration) && audio.duration) || t.durationSec || 0, liked: S.lib.liked.includes(t.id) } : {};
+  const key = JSON.stringify({ ...st, time: Math.floor((st.time || 0) * 2) });
+  if (key !== lastReport) { lastReport = key; api.report(st); }
+}, 400);
 
 // ------------------------------------------------------------------ start
 setupTop(); setupBar(); setupNp(); applyLayout(); setupSplitters(); Win.init();

@@ -31,6 +31,13 @@ jobs:
       - name: Unit tests
         run: python -m pytest -q tests
 
+      - name: UI scripts parse (as the browser loads them, as modules)
+        run: |
+          foreach ($f in "tunio_desktop/web/app.js", "tunio_desktop/web/mini.js", "tunio_desktop/web/icons.js") {
+            Get-Content $f -Raw | node --input-type=module --check
+            if ($LASTEXITCODE -ne 0) { throw "$f has a syntax error" }
+          }
+
       - name: Engine check against the real sites (informational)
         continue-on-error: true
         run: |

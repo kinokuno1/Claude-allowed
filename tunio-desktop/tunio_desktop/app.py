@@ -10,6 +10,7 @@ import sys
 from . import __version__, server
 
 TITLE = f"Tunio {__version__}"
+MINI_TITLE = "Tunio mini player"
 
 
 def _log_to_file():
@@ -27,10 +28,14 @@ class WindowApi:
     "Maximize" fills the screen's work area itself (a window without a title bar would otherwise also
     cover the taskbar), and remembers the size to go back to."""
 
+    _title = TITLE
+
     def __init__(self):
         self._window = None
         self._hwnd = 0
         self._restore: list[int] | None = None
+        self._mini: "MiniApi | None" = None
+        self._now: dict = {}
 
     # ---- helpers
     @staticmethod
@@ -54,7 +59,7 @@ class WindowApi:
             try:
                 self._hwnd = int(self._window.native.Handle.ToInt64())
             except Exception:  # noqa: BLE001 - fall back to finding the window by its title
-                self._hwnd = self._user32().FindWindowW(None, TITLE) or 0
+                self._hwnd = self._user32().FindWindowW(None, self._title) or 0
         return self._hwnd
 
     def _rect(self) -> list[int]:
@@ -86,6 +91,7 @@ class WindowApi:
 
     def minimize(self):
         self._window.minimize()
+        self._show_mini()
 
     def toggle_maximize(self) -> dict:
         if self._restore is not None:
@@ -110,7 +116,75 @@ class WindowApi:
         self._place(x, y, w, h)
 
     def close(self):
+        """With a song loaded, closing keeps the music going in the mini player; otherwise Tunio quits."""
+        if self._now.get("id") and self._mini:
+            self._window.hide()
+            self._show_mini()
+        else:
+            self.quit()
+
+    def quit(self):
+        if self._mini and self._mini._window:
+            self._mini._window.destroy()
         self._window.destroy()
+
+    # ---- the page tells what's playing (for the mini player)
+    def report(self, state: dict):
+        self._now = state or {}
+
+    def _show_mini(self):
+        if self._mini and self._now.get("id"):
+            self._mini.show()
+
+    def _hide_mini(self):
+        if self._mini:
+            self._mini.hide()
+
+
+class MiniApi(WindowApi):
+    """The mini player window (always on top). It shows what the main window reports and sends its buttons there."""
+    _title = MINI_TITLE
+
+    def __init__(self, main: WindowApi):
+        super().__init__()
+        self._main = main
+        self._placed = False
+        self._shown = False
+
+    def now(self) -> dict:
+        return self._main._now
+
+    def cmd(self, name: str, arg=None):
+        import json
+        if name in ("toggle", "next", "prev", "seek", "like"):
+            self._main._window.evaluate_js(f"window.TunioRemote && window.TunioRemote.cmd({json.dumps(name)}, {json.dumps(arg)})")
+
+    def show(self):
+        if not self._placed:  # first time: bottom right of the screen
+            self._placed = True
+            try:
+                self._window.show()
+                x, y, w, h = self._work_area()
+                ww, wh = self._rect()[2:]
+                self._place(x + w - ww - 24, y + h - wh - 24, ww, wh)
+            except Exception:  # noqa: BLE001
+                pass
+        self._window.show()
+        self._shown = True
+
+    def hide(self):
+        if self._shown:
+            self._window.hide()
+            self._shown = False
+
+    def expand(self):
+        """Back to the big window."""
+        self.hide()
+        self._main._window.show()
+        self._main._window.restore()
+
+    def quit(self):
+        self._main.quit()
 
 
 def _round_corners(api: WindowApi):
@@ -150,6 +224,16 @@ def main():
     )
     api._window = window
     window.events.shown += lambda: _round_corners(api)
+    mini_api = MiniApi(api)
+    mini = webview.create_window(
+        MINI_TITLE, url.replace("/?", "/mini.html?", 1), width=380, height=112, min_size=(220, 80), background_color="#0E0E12",
+        frameless=True, easy_drag=False, shadow=True, on_top=True, hidden=True, js_api=mini_api,
+    )
+    mini_api._window = mini
+    api._mini = mini_api
+    mini.events.shown += lambda: _round_corners(mini_api)
+    window.events.minimized += lambda: api._show_mini()
+    window.events.restored += lambda: api._hide_mini()
     webview.start(private_mode=False, storage_path=os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Tunio", "webview"))
     httpd.shutdown()
 
