@@ -1,7 +1,13 @@
 package ch.tunio.app.ui
 
 import android.content.Intent
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import ch.tunio.app.engine.JamBeacon
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
@@ -53,7 +59,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.Speaker
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -101,13 +107,31 @@ object JamUi {
     val open = MutableStateFlow(false)
 }
 
+/** The Jam sheet: comes up from the bottom (half height), drag the bar up for all of it or down to close it. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JamOverlay() {
     val open by JamUi.open.collectAsState()
     val pending by Jam.pendingLink.collectAsState()
     LaunchedEffect(pending) { if (pending != null) JamUi.open.value = true }
-    AnimatedVisibility(open, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
-        JamSheet()
+    if (!open) return
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    ModalBottomSheet(
+        onDismissRequest = { JamUi.open.value = false },
+        sheetState = sheet,
+        containerColor = Surface30,
+        contentColor = TextPrimary,
+        scrimColor = Color.Black.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Muted.copy(alpha = 0.5f), width = 40.dp, height = 4.dp) },
+    ) {
+        val s by Jam.state.collectAsState()
+        Column(Modifier.fillMaxWidth().imePadding()) {
+            Text("Jam", color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
+            val st = s
+            if (st == null) StartOrJoin() else InJam(st)
+        }
+        JoinDialog()
     }
 }
 
@@ -150,30 +174,6 @@ fun JamButton(size: Dp = 44.dp) {
     }
 }
 
-@Composable
-private fun JamSheet() {
-    BackHandler { JamUi.open.value = false }
-    val s by Jam.state.collectAsState()
-    Box(
-        Modifier.fillMaxSize().background(Bg)
-            .background(Brush.verticalGradient(0f to GlowColor.copy(alpha = 0.6f), 0.4f to Color.Transparent))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-    ) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(44.dp).clip(CircleShape).clickable { JamUi.open.value = false }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, "Close", tint = TextPrimary, modifier = Modifier.size(30.dp))
-                }
-                Text("Jam", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                Spacer(Modifier.size(44.dp))
-            }
-            val st = s
-            if (st == null) StartOrJoin() else InJam(st)
-        }
-        JoinDialog()
-    }
-}
-
 // ---------------------------------------------------------------- not in a Jam: start one, or join one nearby
 
 @Composable
@@ -197,9 +197,13 @@ private fun StartOrJoin() {
             scanning = false
         }
     }
-    LaunchedEffect(Unit) { scan() }
+    val context = LocalContext.current
+    val askBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { scan() }
+    LaunchedEffect(Unit) {
+        if (JamBeacon.allowed(context)) scan() else askBluetooth.launch(JamBeacon.permissions())
+    }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 40.dp)) {
         item {
             Text("Listen together", color = TextPrimary, fontSize = 30.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
             Text(
@@ -214,11 +218,11 @@ private fun StartOrJoin() {
                 if (scanning) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Muted)
                 else Icon(Icons.Rounded.Refresh, "Look again", tint = AccentLight, modifier = Modifier.size(22.dp).clickable { scan() })
             }
-            Group {
+            JamCard {
                 if (found.isEmpty()) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (scanning) Radar()
-                        else Text("No Jam found on this Wi-Fi. Ask the host for the link.", color = Muted, fontSize = 15.sp)
+                        else Text("No Jam found nearby. Turn on Bluetooth, or ask the host for the link.", color = Muted, fontSize = 15.sp)
                     }
                 }
                 found.forEachIndexed { i, f ->
@@ -258,7 +262,7 @@ private fun StartOrJoin() {
         // start
         item {
             GroupHeader("Start a Jam")
-            Group {
+            JamCard {
                 Field(you, { you = it }, "Your name")
                 GroupDivider()
                 Field(name, { name = it }, "Jam name (e.g. ${you.ifBlank { "My" }}'s Jam)")
@@ -311,7 +315,7 @@ private fun JoinDialog() {
     var problem by remember(p) { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = { if (!busy) Jam.pendingLink.value = null },
-        containerColor = Surface30,
+        containerColor = Surface30Hi,
         title = { Text(p.info.name, color = TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -351,7 +355,7 @@ private fun InJam(s: JamState) {
     val along by Jam.playAlong.collectAsState()
     val host = s.you?.host == true
     val cur = s.current
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 40.dp)) {
         item {
             Text(s.name, color = TextPrimary, fontSize = 30.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
             Text(
@@ -374,7 +378,7 @@ private fun InJam(s: JamState) {
         }
         // now playing + controls
         item {
-            Group {
+            JamCard {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Artwork(cur?.thumbnail, 64.dp, 8.dp)
                     Spacer(Modifier.width(12.dp))
@@ -394,30 +398,40 @@ private fun InJam(s: JamState) {
                 }
             }
         }
-        // where it plays
+        // where it plays: like a "This phone" device card
         item {
             GroupHeader("Where it plays")
-            Group {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Speaker, null, tint = AccentLight)
-                    Spacer(Modifier.width(12.dp))
+            JamCard {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        if (host) {
-                            Text("On this phone", color = TextPrimary, fontSize = 16.sp)
-                            Text("And the speaker or Bluetooth device it's connected to.", color = Muted, fontSize = 13.sp)
-                        } else {
-                            Text("Play on this phone too", color = TextPrimary, fontSize = 16.sp)
-                            Text("In sync with ${s.host}'s phone: for your own headphones or speaker.", color = Muted, fontSize = 13.sp)
-                        }
+                        Text(if (host) "This phone" else "${s.host}'s phone", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                        Text(
+                            cur?.let { "${it.title} – ${it.artist}" } ?: "Nothing playing",
+                            color = AccentLight, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp),
+                        )
+                        Text(
+                            if (host) "And the speaker or Bluetooth device it's connected to" else "Its speaker or Bluetooth device",
+                            color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp),
+                        )
                     }
-                    if (!host) FlatSwitch(along) { Jam.playAlong.value = it }
+                    Icon(Icons.Rounded.PhoneAndroid, null, tint = AccentLight, modifier = Modifier.size(40.dp))
+                }
+                if (!host) {
+                    GroupDivider()
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Play on this phone too", color = TextPrimary, fontSize = 16.sp)
+                            Text("In sync, for your own headphones or speaker.", color = Muted, fontSize = 13.sp)
+                        }
+                        FlatSwitch(along) { Jam.playAlong.value = it }
+                    }
                 }
             }
         }
         // invite
         item {
             GroupHeader("Invite")
-            Group {
+            JamCard {
                 Text(Jam.link, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp))
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SmallPill("Copy link", Icons.Rounded.ContentCopy, Modifier.weight(1f)) {
@@ -430,7 +444,7 @@ private fun InJam(s: JamState) {
                     }
                 }
             }
-            GroupFooter("People on the same Wi-Fi find the Jam in Tunio's Jam button. The link works from anywhere your home server can be reached.")
+            GroupFooter("People nearby find the Jam with Tunio's Jam button (Bluetooth, or the same Wi-Fi). The link works from anywhere your home server can be reached.")
         }
         // queue
         item {
@@ -501,7 +515,12 @@ private fun Radar() {
         Icon(Icons.Rounded.Groups, null, tint = TextPrimary, modifier = Modifier.size(16.dp))
     }
     Spacer(Modifier.width(12.dp))
-    Text("Looking for Jams on this Wi-Fi…", color = Muted, fontSize = 15.sp)
+    Text("Looking for Jams nearby…", color = Muted, fontSize = 15.sp)
+}
+
+@Composable
+private fun JamCard(content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).clip(RoundedCornerShape(16.dp)).background(Surface30Hi)) { content() }
 }
 
 @Composable

@@ -11,6 +11,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -143,16 +145,24 @@ object Jam {
     // ---------------------------------------------------------------- finding, starting, joining
 
     /** Jams on your own server and on a Tunio server found on this Wi-Fi. */
+    /** Jams nearby: announced over Bluetooth by phones around you, and on Tunio servers on this Wi-Fi. */
     suspend fun nearby(): List<JamFound> = withContext(Dispatchers.IO) {
-        val servers = linkedSetOf<String>()
-        if (HomeServer.configured) servers += HomeServer.address
-        runCatching { HomeServer.discover(5000) }.getOrNull()?.let { servers += it }
-        servers.flatMap { srv ->
-            runCatching {
-                val o = http("GET", "$srv/api/jams", timeout = 5000) as JsonObject
-                Parsing.json.decodeFromJsonElement(JamList.serializer(), o).jams.map { JamFound(srv, it) }
-            }.getOrDefault(emptyList())
-        }.distinctBy { it.info.id }
+        coroutineScope {
+            val bluetooth = async { runCatching { JamBeacon.scan(app) }.getOrDefault(emptyList()) }
+            val servers = linkedSetOf<String>()
+            if (HomeServer.configured) servers += HomeServer.address
+            runCatching { HomeServer.discover(5000) }.getOrNull()?.let { servers += it }
+            val ble = bluetooth.await()
+            servers += ble.map { it.server }
+            val listed = servers.flatMap { srv ->
+                runCatching {
+                    val o = http("GET", "$srv/api/jams", timeout = 5000) as JsonObject
+                    Parsing.json.decodeFromJsonElement(JamList.serializer(), o).jams.map { JamFound(srv, it) }
+                }.getOrDefault(emptyList())
+            }
+            // listed ones carry who's listening and what's playing; Bluetooth ones are kept even if their server can't be listed
+            (listed + ble).distinctBy { it.info.id }
+        }
     }
 
     @Serializable
@@ -244,6 +254,9 @@ object Jam {
         val old = state.value
         state.value = s
         onState?.invoke(old, s)
+        // the host's phone announces the Jam over Bluetooth to phones nearby
+        if (s != null && s.you?.host == true) JamBeacon.startHosting(app, server, s.id, s.name, s.locked, s.you?.name.orEmpty())
+        else if (old?.you?.host == true) JamBeacon.stopHosting(app)
     }
 
     // ---------------------------------------------------------------- following the Jam
