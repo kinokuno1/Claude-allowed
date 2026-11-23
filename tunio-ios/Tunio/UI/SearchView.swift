@@ -50,7 +50,7 @@ struct SearchView: View {
                             PlayFab(size: 50) { player.play(r.tracks, at: 0, shuffled: false, context: r.title) }
                             Button { player.play(r.tracks, at: Int.random(in: 0..<r.tracks.count), shuffled: true, context: r.title) } label: {
                                 Image(systemName: "shuffle").font(.title3).frame(width: 44, height: 44)
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.press)
                             Spacer()
                             Button {
                                 let p = library.createPlaylist(r.title ?? "Imported", tracks: r.tracks, sourceUrl: r.sourceUrl, cover: r.cover)

@@ -1,24 +1,35 @@
 import SwiftUI
 import UIKit
 
-/// Listening together: start a Jam, join one nearby or from a link, and the shared queue once you're in.
+/// The Jam sheet: comes up from the bottom at half height (drag the bar up for all of it, down to close it).
+/// Most people only join, so it opens on the Jams nearby; starting one is behind the small + at the top.
 struct JamView: View {
     @ObservedObject private var jam = Jam.shared
-    @Environment(\.dismiss) private var dismiss
+    @State private var creating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Jam").font(.system(size: 26, weight: .heavy)).padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 4)
-            Group {
-                if let s = jam.state { InJamView(state: s) } else { StartOrJoinView() }
+            HStack {
+                Text(jam.state?.name ?? (creating ? "New Jam" : "Jam")).font(.system(size: 24, weight: .heavy)).lineLimit(1)
+                Spacer()
+                if jam.state == nil { PlusButton(open: creating) { creating.toggle() } }
             }
-            .scrollContentBackground(.hidden)
+            .padding(.leading, 20).padding(.trailing, 8).padding(.top, 20).padding(.bottom, 6)
+            Group {
+                if let s = jam.state { InJamView(state: s) }
+                else if creating { CreateJamView { creating = false } }
+                else { NearbyView() }
+            }
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.2), value: creating)
+            .animation(.easeInOut(duration: 0.2), value: jam.state?.id)
+            Spacer(minLength: 0)
         }
         .foregroundStyle(Theme.text)
         .background(Theme.c30)
         .preferredColorScheme(.dark)
-        .tint(Theme.accentLight)
-        .overlay { JoinPrompt() }
+        .tint(Theme.text)
+        .overlay { PasswordPrompt() }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(Theme.c30)
@@ -26,135 +37,129 @@ struct JamView: View {
     }
 }
 
-// MARK: not in a Jam
-
-private struct StartOrJoinView: View {
-    @ObservedObject private var jam = Jam.shared
-    @ObservedObject private var home = HomeServer.shared
-    @State private var you = Jam.shared.myName
-    @State private var name = ""
-    @State private var withPassword = false
-    @State private var password = ""
-    @State private var starting = false
-    @State private var problem: String?
-    @State private var scanning = true
-    @State private var found: [JamFound] = []
+/// The small + that opens "New Jam": it squeezes, spins and grows back as an ×, a bit like Face ID's icon.
+private struct PlusButton: View {
+    let open: Bool
+    let action: () -> Void
+    @State private var squeeze: CGFloat = 1
 
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Listen together").font(.system(size: 30, weight: .heavy))
-                    Text("Everyone adds songs to one queue. The music plays on the host's phone and its speaker, and anyone can play along on their own iPhone, in sync.")
-                        .font(.subheadline).foregroundStyle(Theme.muted)
-                }
-                .listRowBackground(Color.clear)
+        Button {
+            action()
+            withAnimation(.easeIn(duration: 0.1)) { squeeze = 0.45 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.45)) { squeeze = 1 }
             }
+        } label: {
+            ZStack {
+                Capsule().frame(width: 22 * squeeze, height: 2.4 + (1 - squeeze) * 3)
+                Capsule().frame(width: 2.4 + (1 - squeeze) * 3, height: 22 * squeeze)
+            }
+            .foregroundStyle(open ? Theme.text : Theme.muted)
+            .rotationEffect(.degrees(open ? 135 : 0))
+            .animation(.spring(response: 0.45, dampingFraction: 0.55), value: open)
+            .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.press)
+        .accessibilityLabel(open ? "Close" : "Start a Jam")
+    }
+}
 
-            Section {
-                if found.isEmpty {
-                    HStack(spacing: 12) {
-                        if scanning { Radar(); Text("Looking for Jams nearby…").foregroundStyle(Theme.muted) }
-                        else { Text("No Jam found nearby. Turn on Bluetooth, or ask the host for the link.").foregroundStyle(Theme.muted) }
-                    }
-                }
-                ForEach(found) { f in
-                    Button { jam.pending = f } label: {
-                        HStack(spacing: 12) {
-                            RoundedRectangle(cornerRadius: 12).fill(Theme.c30hi).frame(width: 44, height: 44)
-                                .overlay(Image(systemName: "person.2.wave.2.fill").foregroundStyle(Theme.accentLight))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(f.info.name).font(.headline).lineLimit(1)
-                                Text("\(f.info.host ?? "") · \(f.info.members ?? 0) listening" + (f.info.now?.title.map { " · ♪ \($0)" } ?? ""))
-                                    .font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
+// MARK: Jams nearby (what the sheet opens on)
+
+private struct NearbyView: View {
+    @ObservedObject private var jam = Jam.shared
+    @State private var scanning = true
+    @State private var found: [JamFound] = []
+    @State private var joining: String?
+
+    var body: some View {
+        Group {
+            if !found.isEmpty {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(found) { f in
+                            Button { tap(f) } label: {
+                                HStack(spacing: 14) {
+                                    RoundedRectangle(cornerRadius: 12).fill(Theme.c30hi).frame(width: 48, height: 48)
+                                        .overlay(Image(systemName: "person.2.fill"))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(f.info.name).font(.headline).lineLimit(1)
+                                        let sub = [f.info.host ?? "", (f.info.members ?? 0) > 0 ? "\(f.info.members ?? 0) listening" : ""].filter { !$0.isEmpty }
+                                        Text(sub.joined(separator: " · ")).font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
+                                    }
+                                    Spacer()
+                                    if joining == f.info.id { ProgressView() }
+                                    else if f.info.locked == true { Image(systemName: "lock.fill").font(.footnote).foregroundStyle(Theme.muted) }
+                                }
+                                .padding(.horizontal, 20).padding(.vertical, 10)
                             }
-                            Spacer()
-                            Image(systemName: f.info.locked == true ? "lock.fill" : "lock.open").foregroundStyle(Theme.muted)
+                            .buttonStyle(.press)
                         }
                     }
-                    .buttonStyle(.plain)
                 }
-                Button {
-                    if let l = Jam.parseLink(UIPasteboard.general.string ?? "") {
-                        problem = nil
-                        Task { await jam.openLink(server: l.server, id: l.id) }
-                    } else {
-                        problem = "Copy the Jam link first, then tap here."
-                    }
-                } label: { Label("Paste a Jam link", systemImage: "link") }
-            } header: {
-                HStack {
-                    Text("Jams nearby")
-                    Spacer()
-                    if scanning { ProgressView().controlSize(.small) }
-                    else { Button { scan() } label: { Image(systemName: "arrow.clockwise") } }
+            } else if scanning {
+                ProgressView().frame(maxWidth: .infinity, minHeight: 240)
+            } else {
+                VStack(spacing: 8) {
+                    Tumbleweed().frame(width: 220, height: 72)
+                    Text("Looks like nothing's here.").font(.subheadline).foregroundStyle(Theme.muted)
                 }
-            }
-            .listRowBackground(Theme.c30hi)
-
-            Section {
-                TextField("Your name", text: $you)
-                TextField("Jam name (e.g. \(you.isEmpty ? "My" : you)'s Jam)", text: $name)
-                Picker("Who can join", selection: $withPassword) {
-                    Text("Open to all").tag(false)
-                    Text("Password").tag(true)
-                }
-                .pickerStyle(.segmented)
-                if withPassword { SecureField("Password for guests", text: $password) }
-            } header: { Text("Start a Jam") } footer: {
-                if home.address.isEmpty {
-                    Text("A Jam runs on your Tunio home server: set it up in Settings first. You can still join other people's Jams.")
-                } else {
-                    Text("Runs on your home server. What's playing now becomes the start of the queue. Guests on your Wi-Fi see it here; send the link to anyone else.")
-                }
-            }
-            .listRowBackground(Theme.c30hi)
-            .animation(.easeInOut, value: withPassword)
-
-            Section {
-                if let problem { Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Color(red: 1, green: 0.79, blue: 0.79)) }
-                Button { start() } label: {
-                    HStack(spacing: 10) {
-                        if starting { ProgressView().tint(Theme.c60) }
-                        Text(starting ? "Starting…" : "Start the Jam").font(.headline)
-                    }
-                    .foregroundStyle(Theme.c60).frame(maxWidth: .infinity).frame(height: 50)
-                    .background(Color.white.opacity(canStart ? 1 : 0.4), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canStart)
-                .listRowBackground(Color.clear)
+                .frame(maxWidth: .infinity, minHeight: 240)
             }
         }
-        .task { scan() }
-    }
-
-    private var canStart: Bool { !home.address.isEmpty && !starting && (!withPassword || !password.isEmpty) }
-
-    private func scan() {
-        scanning = true
-        Task {
-            found = await jam.nearby()
-            scanning = false
+        .task {
+            while !Task.isCancelled { // keeps looking while the sheet is open
+                scanning = true
+                found = await jam.nearby()
+                scanning = false
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+            }
         }
     }
 
-    private func start() {
-        starting = true; problem = nil
-        jam.myName = you
-        let title = name.trimmingCharacters(in: .whitespaces).isEmpty ? "\(you.isEmpty ? "My" : you)'s Jam" : name
+    private func tap(_ f: JamFound) {
+        if f.info.locked == true { jam.pending = f; return }
+        joining = f.info.id
         Task {
-            do { try await jam.create(name: title, password: withPassword ? password : "") }
-            catch { problem = error.localizedDescription }
-            starting = false
+            do { try await jam.join(f, password: "") } catch { Player.shared.message = error.localizedDescription }
+            joining = nil
         }
     }
 }
 
-/// Asks for your name (and the password if the Jam has one), then joins.
-private struct JoinPrompt: View {
+/// A small tumbleweed rolling by with little hops, over a faint ground line.
+private struct Tumbleweed: View {
+    var body: some View {
+        TimelineView(.animation) { tl in
+            Canvas { ctx, size in
+                let p = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5.2) / 5.2
+                let r: CGFloat = 14
+                let ground = size.height - 6
+                var line = Path(); line.move(to: CGPoint(x: 0, y: ground)); line.addLine(to: CGPoint(x: size.width, y: ground))
+                ctx.stroke(line, with: .color(Theme.muted.opacity(0.18)), lineWidth: 1)
+                let x = -r * 2 + (size.width + r * 4) * CGFloat(p)
+                let hop = CGFloat(abs(sin(p * .pi * 5))) * 12
+                let y = ground - r - hop
+                let fade = p < 0.12 ? p / 0.12 : p > 0.88 ? (1 - p) / 0.12 : 1
+                let col = Theme.muted.opacity(0.55 * fade)
+                var c = ctx
+                c.translateBy(x: x, y: y)
+                c.rotate(by: .radians(Double(x / r)))
+                for k in 0..<7 { // tangled loops
+                    let a = Double(k) * 0.9, rr = r * (0.5 + 0.07 * CGFloat(k))
+                    let rect = CGRect(x: -rr + CGFloat(cos(a)) * r * 0.25, y: -rr * 0.7 + CGFloat(sin(a)) * r * 0.25, width: rr * 2, height: rr * 1.4)
+                    c.stroke(Path(ellipseIn: rect), with: .color(col), lineWidth: 1.4)
+                }
+                c.stroke(Path(ellipseIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)), with: .color(col), lineWidth: 1.6)
+            }
+        }
+    }
+}
+
+/// Asks for the password of a Jam that has one (open Jams are joined right away).
+private struct PasswordPrompt: View {
     @ObservedObject private var jam = Jam.shared
-    @State private var you = Jam.shared.myName
     @State private var password = ""
     @State private var problem: String?
     @State private var busy = false
@@ -162,14 +167,11 @@ private struct JoinPrompt: View {
     var body: some View {
         Color.clear
             .alert(jam.pending?.info.name ?? "Jam", isPresented: Binding(get: { jam.pending != nil }, set: { if !$0 && !busy { jam.pending = nil } })) {
-                TextField("Your name", text: $you)
-                if jam.pending?.info.locked == true { SecureField("Jam password", text: $password) }
-                Button("Cancel", role: .cancel) { jam.pending = nil; problem = nil }
+                SecureField("Password", text: $password)
+                Button("Cancel", role: .cancel) { jam.pending = nil; problem = nil; password = "" }
                 Button(busy ? "Joining…" : "Join") { join() }
             } message: {
-                if let p = jam.pending {
-                    Text((problem.map { $0 + "\n" } ?? "") + "Hosted by \(p.info.host ?? "") · \(p.info.members ?? 0) listening")
-                }
+                Text(problem ?? "This Jam has a password.")
             }
             .allowsHitTesting(false)
     }
@@ -177,7 +179,6 @@ private struct JoinPrompt: View {
     private func join() {
         guard let p = jam.pending else { return }
         busy = true
-        jam.myName = you
         Task {
             do {
                 try await jam.join(p, password: password)
@@ -193,115 +194,116 @@ private struct JoinPrompt: View {
     }
 }
 
+// MARK: starting a Jam (behind the +)
+
+private struct CreateJamView: View {
+    let started: () -> Void
+    @ObservedObject private var jam = Jam.shared
+    @ObservedObject private var home = HomeServer.shared
+    @State private var name = ""
+    @State private var locked = false
+    @State private var password = ""
+    @State private var starting = false
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 0) {
+                TextField("\(jam.myName)'s Jam", text: $name).padding(.horizontal, 16).frame(height: 52)
+                Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 16)
+                Toggle("Password", isOn: $locked.animation()).tint(Color(red: 0.2, green: 0.78, blue: 0.35)).padding(.horizontal, 16).frame(height: 52)
+                if locked {
+                    Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 16)
+                    SecureField("Password for guests", text: $password).padding(.horizontal, 16).frame(height: 52)
+                }
+            }
+            .background(Theme.c30hi, in: RoundedRectangle(cornerRadius: 16))
+            if let problem { Text(problem).font(.subheadline).foregroundStyle(Color(red: 1, green: 0.79, blue: 0.79)) }
+            if home.address.isEmpty { Text("Needs your Tunio home server (Settings).").font(.footnote).foregroundStyle(Theme.muted) }
+            Button { start() } label: {
+                HStack(spacing: 10) {
+                    if starting { ProgressView().tint(Theme.c60) }
+                    Text(starting ? "Starting…" : "Start").font(.headline)
+                }
+                .foregroundStyle(Theme.c60).frame(maxWidth: .infinity).frame(height: 52)
+                .background(Color.white.opacity(canStart ? 1 : 0.4), in: Capsule())
+            }
+            .buttonStyle(.press)
+            .disabled(!canStart)
+        }
+        .padding(.horizontal, 20).padding(.bottom, 24)
+    }
+
+    private var canStart: Bool { !home.address.isEmpty && !starting && (!locked || !password.isEmpty) }
+
+    private func start() {
+        starting = true; problem = nil
+        let title = name.trimmingCharacters(in: .whitespaces).isEmpty ? "\(jam.myName)'s Jam" : name
+        Task {
+            do { try await jam.create(name: title, password: locked ? password : ""); started() }
+            catch { problem = error.localizedDescription }
+            starting = false
+        }
+    }
+}
+
 // MARK: in a Jam
 
 private struct InJamView: View {
     let state: JamState
     @ObservedObject private var jam = Jam.shared
-    @State private var copied = false
 
     private var host: Bool { state.you?.host == true }
 
     var body: some View {
         List {
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(state.name).font(.system(size: 30, weight: .heavy))
-                    Text((host ? "You're the host" : "Hosted by \(state.host ?? "")") + " · \(state.people?.count ?? 0) listening"
-                         + (state.locked == true ? " · password" : " · open to all")).font(.subheadline).foregroundStyle(Theme.muted)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(state.people ?? []) { p in
-                                VStack(spacing: 4) {
-                                    Circle().fill(p.host == true ? Theme.accentLight : Theme.c30hi).frame(width: 44, height: 44)
-                                        .overlay(Text(p.name.prefix(1).uppercased()).font(.headline).foregroundStyle(p.host == true ? Theme.c60 : Theme.text))
-                                    Text(p.id == state.you?.id ? "You" : p.name).font(.caption2).foregroundStyle(Theme.muted).lineLimit(1).frame(width: 56)
-                                }
-                            }
-                        }.padding(.top, 10)
-                    }
-                }
-                .listRowBackground(Color.clear)
-            }
-
-            Section {
+            // who's here
+            ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    Cover(url: state.current?.thumbnail, size: 64, corner: 8)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(state.current?.title ?? "Nothing playing").font(.headline).lineLimit(2)
-                        Text(state.current.map { "\($0.artist ?? "") · added by \($0.addedBy ?? "")" } ?? "Add a song and it starts playing")
-                            .font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
-                    }
-                }
-                HStack(spacing: 28) {
-                    Spacer()
-                    Button { jam.previous() } label: { Image(systemName: "backward.fill").font(.title2) }
-                    Button { jam.setPlaying(!state.playing) } label: {
-                        Image(systemName: state.playing ? "pause.fill" : "play.fill").font(.title).foregroundStyle(Theme.c60)
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 60, height: 60).background(Color.white, in: Circle())
-                    }
-                    Button { jam.next() } label: { Image(systemName: "forward.fill").font(.title2) }
-                    Spacer()
-                }
-                .buttonStyle(.plain)
-                .padding(.vertical, 6)
-            }
-            .listRowBackground(Theme.c30hi)
-
-            // like a "This phone" device card
-            Section("Where it plays") {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(host ? "This phone" : "\(state.host ?? "The host")'s phone").font(.system(size: 24, weight: .heavy))
-                        Text(state.current.map { "\($0.title) – \($0.artist ?? "")" } ?? "Nothing playing")
-                            .font(.subheadline).foregroundStyle(Theme.accentLight).lineLimit(1)
-                        Text(host ? "And the speaker or Bluetooth device it's connected to" : "Its speaker or Bluetooth device")
-                            .font(.footnote).foregroundStyle(Theme.muted)
-                    }
-                    Spacer()
-                    Image(systemName: "iphone").font(.system(size: 34)).foregroundStyle(Theme.accentLight)
-                }
-                .padding(.vertical, 6)
-                if !host {
-                    Toggle(isOn: $jam.playAlong) {
-                        VStack(alignment: .leading) {
-                            Text("Play on this iPhone too")
-                            Text("In sync, for your own headphones or speaker.").font(.footnote).foregroundStyle(Theme.muted)
+                    ForEach(state.people ?? []) { p in
+                        VStack(spacing: 4) {
+                            Circle().fill(p.host == true ? Color.white : Theme.c30hi).frame(width: 44, height: 44)
+                                .overlay(Text(p.name.prefix(1).uppercased()).font(.headline).foregroundStyle(p.host == true ? Theme.c60 : Theme.text))
+                            Text(p.id == state.you?.id ? "You" : p.name).font(.caption2).foregroundStyle(Theme.muted).lineLimit(1).frame(width: 52)
                         }
                     }
-                    .tint(Color(red: 0.2, green: 0.78, blue: 0.35))
+                }
+                .padding(.horizontal, 20)
+            }
+            .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
+
+            // where it plays, like a device card, with the controls
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(host ? "This phone" : "\(state.host ?? "The host")'s phone").font(.system(size: 22, weight: .heavy))
+                        Text(state.current.map { "\($0.title) – \($0.artist ?? "")" } ?? "Nothing playing")
+                            .font(.subheadline).foregroundStyle(Theme.accentLight).lineLimit(1)
+                    }
+                    Spacer()
+                    Image(systemName: "iphone").font(.system(size: 32)).foregroundStyle(Theme.accentLight)
+                }
+                .padding(.vertical, 4)
+                HStack(spacing: 28) {
+                    Spacer()
+                    Button { jam.previous() } label: { Image(systemName: "backward.fill").font(.title2).frame(width: 44, height: 44) }
+                    Button { jam.setPlaying(!state.playing) } label: {
+                        Image(systemName: state.playing ? "pause.fill" : "play.fill").font(.title2).foregroundStyle(Theme.c60)
+                            .contentTransition(.symbolEffect(.replace))
+                            .frame(width: 56, height: 56).background(Color.white, in: Circle())
+                    }
+                    Button { jam.next() } label: { Image(systemName: "forward.fill").font(.title2).frame(width: 44, height: 44) }
+                    Spacer()
+                }
+                .buttonStyle(.press)
+                if !host {
+                    Toggle("Play on this iPhone too", isOn: $jam.playAlong).tint(Color(red: 0.2, green: 0.78, blue: 0.35))
                 }
             }
             .listRowBackground(Theme.c30hi)
 
             Section {
-                Text(jam.link).font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
-                HStack(spacing: 10) {
-                    Button {
-                        UIPasteboard.general.string = jam.link
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        copied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
-                    } label: {
-                        Label(copied ? "Copied" : "Copy link", systemImage: copied ? "checkmark" : "doc.on.doc")
-                            .frame(maxWidth: .infinity).frame(height: 44).background(Theme.c30hi, in: Capsule())
-                    }
-                    ShareLink(item: jam.link, message: Text("Join my Jam “\(state.name)” on Tunio" + (state.locked == true ? " (ask me for the password)" : ""))) {
-                        Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).frame(height: 44).background(Theme.c30hi, in: Capsule())
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.subheadline.weight(.semibold))
-            } header: { Text("Invite") } footer: {
-                Text("People nearby find the Jam with Tunio's Jam button (Bluetooth, or the same Wi-Fi). The link works from anywhere your home server can be reached.")
-            }
-            .listRowBackground(Theme.c30hi)
-
-            Section {
-                if state.upNext.isEmpty {
-                    Text("Nothing queued. Tap any song in Search or your Library to add it to the Jam.").foregroundStyle(Theme.muted)
-                }
+                if state.upNext.isEmpty { Text("Tap any song to add it.").foregroundStyle(Theme.muted) }
                 ForEach(state.upNext) { t in
                     HStack(spacing: 12) {
                         Cover(url: t.thumbnail, size: 44)
@@ -318,17 +320,23 @@ private struct InJamView: View {
                     guard let f = from.first else { return }
                     jam.move(state.upNext[f].qid, to: state.index + 1 + (to > f ? to - 1 : to))
                 }
-            } header: { Text("Up next") }
+            } header: { Text("Up next").font(.headline).foregroundStyle(Theme.text).textCase(nil) }
             .listRowBackground(Theme.c30hi)
             .environment(\.editMode, .constant(.active))
 
-            Section {
-                Button(role: .destructive) { jam.leave() } label: {
-                    Text(host ? "End the Jam for everyone" : "Leave the Jam").frame(maxWidth: .infinity)
+            HStack(spacing: 12) {
+                ShareLink(item: jam.link, message: Text("Join my Jam on Tunio" + (state.locked == true ? " (ask me for the password)" : ""))) {
+                    Text("Invite").font(.headline).foregroundStyle(Theme.c60).frame(maxWidth: .infinity).frame(height: 48).background(Color.white, in: Capsule())
+                }
+                Button { jam.leave() } label: {
+                    Text(host ? "End" : "Leave").font(.headline).frame(maxWidth: .infinity).frame(height: 48).background(Theme.c30hi, in: Capsule())
                 }
             }
-            .listRowBackground(Theme.c30hi)
+            .buttonStyle(.press)
+            .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20)).listRowBackground(Color.clear).listRowSeparator(.hidden)
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -343,57 +351,42 @@ struct JamBar: View {
                     Cover(url: s.current?.thumbnail, size: 44, corner: 8)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(s.current?.title ?? "Nothing playing yet").font(.subheadline.weight(.semibold)).lineLimit(1)
-                        Text("Jam · \(s.name) · on \(s.host ?? "the host")'s phone").font(.caption).foregroundStyle(Theme.accentLight).lineLimit(1)
+                        Text("\(s.name) · \(s.host ?? "the host")'s phone").font(.caption).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                     Spacer()
                     Button { jam.setPlaying(!s.playing) } label: {
-                        Image(systemName: s.playing ? "pause.fill" : "play.fill").font(.title3).frame(width: 40, height: 40)
+                        Image(systemName: s.playing ? "pause.fill" : "play.fill").font(.title3).frame(width: 44, height: 44)
                             .contentTransition(.symbolEffect(.replace))
                     }
+                    .buttonStyle(.press)
                 }
                 .padding(8)
                 .background(Theme.c30hi, in: RoundedRectangle(cornerRadius: 16))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.press)
         }
     }
 }
 
-/// The player's Jam button: lit with a count while in a Jam.
+/// The player's Jam button: outlined, filled while you're in a Jam (with how many people).
 struct JamButton: View {
     @ObservedObject private var jam = Jam.shared
     @State private var open = false
 
     var body: some View {
         Button { open = true } label: {
-            Image(systemName: "person.2.wave.2.fill").font(.title3)
-                .foregroundStyle(jam.active ? Theme.accentLight : Theme.text)
+            Image(systemName: jam.active ? "person.2.wave.2.fill" : "person.2.wave.2").font(.title3)
+                .foregroundStyle(Theme.text)
+                .contentTransition(.symbolEffect(.replace))
                 .overlay(alignment: .topTrailing) {
                     if let n = jam.state?.people?.count {
                         Text("\(n)").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.c60)
-                            .frame(width: 16, height: 16).background(Theme.accentLight, in: Circle()).offset(x: 10, y: -8)
+                            .frame(width: 16, height: 16).background(Color.white, in: Circle()).offset(x: 10, y: -8)
                     }
                 }
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.press)
         .sheet(isPresented: $open) { JamView() }
-    }
-}
-
-/// Rings spreading out while looking for Jams nearby.
-private struct Radar: View {
-    var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
-            ZStack {
-                ForEach(0..<2) { k in
-                    let q = (t + Double(k) * 0.5).truncatingRemainder(dividingBy: 1)
-                    Circle().fill(Theme.accentLight.opacity(0.5)).scaleEffect(0.3 + q).opacity(1 - q)
-                }
-                Image(systemName: "person.2.fill").font(.system(size: 10))
-            }
-            .frame(width: 28, height: 28)
-        }
     }
 }

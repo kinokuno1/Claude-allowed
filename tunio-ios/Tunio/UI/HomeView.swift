@@ -30,7 +30,7 @@ struct HomeView: View {
                         ForEach(Array(recent.enumerated()), id: \.element.id) { i, t in
                             Button { player.play(recent, at: i, shuffled: false, context: "Recently played") } label: {
                                 CardLabel(cover: Cover(url: t.thumbnail, trackID: t.id, size: 140, corner: 8), title: t.title, subtitle: t.artist)
-                            }.buttonStyle(.plain).contextMenu { TrackMenu(track: t) }
+                            }.buttonStyle(.press).contextMenu { TrackMenu(track: t) }
                         }
                     }
                 }
@@ -39,7 +39,7 @@ struct HomeView: View {
                         ForEach(library.playlists) { p in
                             NavigationLink(value: Route.playlist(p.id)) {
                                 CardLabel(cover: Cover(url: library.cover(of: p), size: 140, corner: 8), title: p.name, subtitle: "Playlist · \(p.trackIds.count) songs")
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.press)
                         }
                     }
                 }
@@ -57,11 +57,8 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16).padding(.bottom, 24)
         }
-        .background(alignment: .top) {
-            LinearGradient(colors: [Theme.glow.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom).frame(height: 320).ignoresSafeArea()
-        }
         .navigationTitle(greeting)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink(value: Route.settings) { Image(systemName: "gearshape") } } }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink(value: Route.settings) { SpinningGear() } } }
     }
 }
 
@@ -78,7 +75,7 @@ struct QuickTile<C: View>: View {
             }
             .background(Color.white.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        }.buttonStyle(.plain)
+        }.buttonStyle(.press)
     }
 }
 

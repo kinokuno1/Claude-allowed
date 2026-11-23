@@ -169,9 +169,16 @@ final class Jam: ObservableObject {
 
     /// A link was opened: look the Jam up and ask to join it.
     func openLink(server: String, id: String) async {
+        if state?.id == id { showSheet = true; return }
         if let data = try? await request("GET", server + "/api/jams", timeout: 6),
            let list = try? JSONDecoder().decode(JamList.self, from: data), let info = list.jams.first(where: { $0.id == id }) {
-            pending = JamFound(server: server, info: info)
+            let found = JamFound(server: server, info: info)
+            if info.locked == true {
+                pending = found // only the password is asked
+            } else {
+                do { try await join(found, password: ""); Player.shared.message = "You're in \(info.name)" }
+                catch { Player.shared.message = error.localizedDescription }
+            }
             showSheet = true
         } else {
             Player.shared.message = "That Jam has ended, or its server can't be reached."

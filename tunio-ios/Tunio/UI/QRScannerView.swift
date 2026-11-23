@@ -187,7 +187,7 @@ struct QRScannerView: View {
             Text(s).font(.headline).foregroundStyle(light ? Theme.c60 : Theme.text)
                 .padding(.horizontal, 22).frame(height: 48)
                 .background(light ? Color.white : Color.white.opacity(0.14), in: Capsule())
-        }.buttonStyle(.plain)
+        }.buttonStyle(.press)
     }
 
     private func circleButton(_ icon: String, active: Bool, action: @escaping () -> Void) -> some View {
@@ -196,7 +196,7 @@ struct QRScannerView: View {
                 .foregroundStyle(active ? Theme.c60 : Theme.text)
                 .frame(width: 46, height: 46)
                 .background(active ? Color.white : Color.black.opacity(0.45), in: Circle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(.press)
     }
 }
 

@@ -94,7 +94,7 @@ struct PlayerView: View {
             }
             Button { library.toggleLike(t) } label: {
                 Image(systemName: library.isLiked(t) ? "heart.fill" : "heart").font(.title2)
-                    .foregroundStyle(library.isLiked(t) ? Theme.pinkLight : Theme.text).frame(width: 40, height: 40)
+                    .foregroundStyle(Theme.text).frame(width: 40, height: 40)
                     .symbolEffect(.bounce, value: library.isLiked(t))
             }
         }.padding(.top, 8)
@@ -103,7 +103,8 @@ struct PlayerView: View {
     private var controls: some View {
         HStack {
             Button { player.toggleShuffle() } label: {
-                Image(systemName: "shuffle").font(.title3).foregroundStyle(player.shuffle ? Theme.accentLight : Theme.text)
+                ToggleGlyph(on: player.shuffle, icon: "shuffle", badge: player.smart ? "sparkle" : nil)
+                    .accessibilityLabel(player.smart ? "Smart shuffle" : "Shuffle")
             }
             Spacer()
             Button { player.previous() } label: { Image(systemName: "backward.fill").font(.system(size: 34)) }
@@ -119,11 +120,10 @@ struct PlayerView: View {
             Button { player.next() } label: { Image(systemName: "forward.fill").font(.system(size: 34)) }
             Spacer()
             Button { player.cycleRepeat() } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.title3)
-                    .foregroundStyle(player.repeatMode == .off ? Theme.text : Theme.accentLight)
+                ToggleGlyph(on: player.repeatMode != .off, icon: player.repeatMode == .one ? "repeat.1" : "repeat")
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.press)
         .padding(.vertical, 10)
     }
 
@@ -142,9 +142,8 @@ struct PlayerView: View {
 
     private func panelButton(_ p: Panel, _ icon: String, _ label: String) -> some View {
         Button { panel = panel == p ? .cover : p } label: {
-            Image(systemName: icon).font(.title3).foregroundStyle(panel == p ? Theme.accentLight : Theme.text)
-                .frame(width: 44, height: 36).accessibilityLabel(label)
-        }.buttonStyle(.plain)
+            ToggleGlyph(on: panel == p, icon: icon, filled: icon == "quote.bubble" ? "quote.bubble.fill" : nil).accessibilityLabel(label)
+        }.buttonStyle(.press)
     }
 }
 
@@ -161,7 +160,7 @@ struct ProgressBar: View {
             GeometryReader { g in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.white.opacity(0.2))
-                    Capsule().fill(dragging != nil ? AnyShapeStyle(Theme.accentLight) : AnyShapeStyle(Theme.text)).frame(width: g.size.width * shown)
+                    Capsule().fill(Theme.text).frame(width: g.size.width * shown)
                 }
                 .frame(height: dragging != nil ? 8 : 4)
                 .frame(maxHeight: .infinity)
@@ -340,7 +339,7 @@ struct LyricsModeToggle: View {
                     if mode == m { Capsule().fill(Color.white).matchedGeometryEffect(id: "pill", in: ns) }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.press)
         .accessibilityLabel(label)
     }
 }
@@ -404,7 +403,7 @@ struct QueuePanel: View {
                         Cover(url: t.thumbnail, trackID: t.id, size: 44)
                         VStack(alignment: .leading) {
                             Text(t.title).lineLimit(1)
-                            Text(t.artist).font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
+                            Text((player.recommended.contains(t.id) ? "✦ Recommended · " : "") + t.artist).font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
                         }
                     }
                     .contentShape(Rectangle())

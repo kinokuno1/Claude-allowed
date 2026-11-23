@@ -21,6 +21,13 @@ final class Player: ObservableObject {
     @Published private(set) var queue: [Track] = []
     @Published private(set) var index = -1
     @Published private(set) var shuffle = false
+    /// Smart shuffle: a song you might like after every 3 to 5 songs (the shuffle button's third state).
+    @Published private(set) var smart = false
+    /// Recommended songs smart shuffle put in the queue (shown as "Recommended").
+    @Published private(set) var recommended: Set<String> = []
+    private var smartPool: [Track] = []
+    private var smartBusy = false
+    private var nextGap = Int.random(in: 3...5)
     @Published private(set) var repeatMode: Repeat = .off
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
@@ -73,6 +80,9 @@ final class Player: ObservableObject {
 
     func play(_ tracks: [Track], at start: Int = 0, shuffled: Bool? = nil, context: String? = nil) {
         guard !tracks.isEmpty else { return }
+        recommended = []
+        smartPool = []
+        if shuffled == false { smart = false }
         // in a Jam, a tapped song joins the shared queue
         if Jam.shared.active { return Jam.shared.add([tracks[min(max(start, 0), tracks.count - 1)]]) }
         let sh = shuffled ?? shuffle
@@ -164,8 +174,60 @@ final class Player: ObservableObject {
         updateNowPlaying()
     }
 
+    /// Shuffle button: off → shuffle → smart shuffle (a song you might like every 3 to 5 songs) → off.
     func toggleShuffle() {
-        shuffle.toggle()
+        if !shuffle { setShuffle(true) }
+        else if !smart && !Jam.shared.active {
+            smart = true
+            message = "Smart shuffle: a song you might like every few songs"
+            fillSmart()
+        } else {
+            smart = false
+            if index >= 0 { queue = Array(queue[...index]) + queue[(index + 1)...].filter { !recommended.contains($0.id) } }
+            original = original?.filter { !recommended.contains($0.id) }
+            setShuffle(false)
+        }
+    }
+
+    /// Smart shuffle: puts a recommended song (similar to the list) after every 3 to 5 songs coming up.
+    private func fillSmart() {
+        guard smart, !Jam.shared.active, current != nil, !smartBusy else { return }
+        var gap = 0
+        var i = index
+        while i >= 0, !recommended.contains(queue[i].id) { gap += 1; i -= 1 }
+        var at: [Int] = []
+        var j = index + 1
+        while j < queue.count, j <= index + 12 {
+            if recommended.contains(queue[j].id) { gap = 0 } else {
+                gap += 1
+                if gap >= nextGap { at.append(j + 1); gap = 0; nextGap = Int.random(in: 3...5) }
+            }
+            j += 1
+        }
+        guard !at.isEmpty else { return }
+        smartBusy = true
+        Task {
+            if smartPool.count < at.count {
+                let mine = queue.filter { !recommended.contains($0.id) }
+                if let seed = mine.randomElement() ?? current {
+                    let exclude = Set(queue.map(\.id) + Library.shared.recent.prefix(30))
+                    let more = await Engine.similar(to: seed, excluding: exclude)
+                    smartPool += more.filter { m in !queue.contains { $0.id == m.id } && !smartPool.contains { $0.id == m.id } }.shuffled()
+                }
+            }
+            for pos in at.reversed() {
+                guard !smartPool.isEmpty else { break }
+                let t = smartPool.removeFirst()
+                guard pos <= queue.count, !queue.contains(where: { $0.id == t.id }) else { continue }
+                recommended.insert(t.id)
+                queue.insert(t, at: pos)
+            }
+            smartBusy = false
+        }
+    }
+
+    private func setShuffle(_ on: Bool) {
+        shuffle = on
         guard let cur = current else { return }
         if shuffle {
             original = queue
@@ -264,6 +326,7 @@ final class Player: ObservableObject {
 
     private func afterTrackChange() {
         guard let t = current else { return }
+        if smart { fillSmart() }
         let autoplay = UserDefaults.standard.object(forKey: "autoplay") as? Bool ?? true
         if autoplay, !Jam.shared.active, queue.count - index - 1 <= 3, repeatMode == .off, !autoplayBusy {
             autoplayBusy = true

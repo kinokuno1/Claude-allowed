@@ -9,7 +9,7 @@ struct TunioApp: App {
             RootView()
                 .environmentObject(ui)
                 .preferredColorScheme(.dark)
-                .tint(Theme.accentLight)
+                .tint(Theme.text) // selected things are filled in, not coloured
                 .task {
                     await HomeServer.shared.check(force: true)
                     Library.shared.fillArtwork()

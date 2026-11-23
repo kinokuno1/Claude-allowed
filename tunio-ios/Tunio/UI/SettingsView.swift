@@ -12,7 +12,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Autoplay", isOn: $autoplay).tint(Theme.accent)
+                Toggle("Autoplay", isOn: $autoplay).tint(Color(red: 0.2, green: 0.78, blue: 0.35))
             } footer: { Text("When 3 or fewer songs are left, similar songs are added, and the next song is loaded in advance.") }
 
             Section {
@@ -34,7 +34,7 @@ struct SettingsView: View {
                     Button { address = a } label: { Label(a, systemImage: "server.rack") }
                 }
                 if home.isSetUp {
-                    Toggle("Use the home server", isOn: $home.enabled).tint(Theme.accent)
+                    Toggle("Use the home server", isOn: $home.enabled).tint(Color(red: 0.2, green: 0.78, blue: 0.35))
                     Button("Forget this server", role: .destructive) { home.forget(); address = ""; password = "" }
                 }
             } header: { Text("Home server") } footer: {

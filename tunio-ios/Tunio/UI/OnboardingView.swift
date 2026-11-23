@@ -17,7 +17,6 @@ struct OnboardingView: View {
     var body: some View {
         ZStack {
             Theme.c60.ignoresSafeArea()
-            LinearGradient(colors: [Theme.glow.opacity(0.7), .clear], startPoint: .top, endPoint: .center).ignoresSafeArea()
             Group {
                 switch step {
                 case .welcome: welcome
@@ -82,7 +81,7 @@ struct OnboardingView: View {
                                     VStack(alignment: .leading) { Text("Tunio server").bold(); Text(a.replacingOccurrences(of: "http://", with: "")).font(.footnote).foregroundStyle(Theme.muted) }
                                     Spacer(); Image(systemName: "chevron.right").foregroundStyle(Theme.muted)
                                 }
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.press)
                         }
                     }
                     .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Theme.c30, in: RoundedRectangle(cornerRadius: 14))
@@ -175,13 +174,13 @@ struct OnboardingView: View {
                 Spacer(minLength: 0)
             }
             .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Theme.c30, in: RoundedRectangle(cornerRadius: 16))
-        }.buttonStyle(.plain)
+        }.buttonStyle(.press)
     }
 
     private func primary(_ title: String, busy: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) { if busy { ProgressView().tint(Theme.c60) }; Text(title).font(.headline) }
                 .foregroundStyle(Theme.c60).frame(maxWidth: .infinity).frame(height: 54).background(Color.white, in: Capsule())
-        }.buttonStyle(.plain)
+        }.buttonStyle(.press)
     }
 }

@@ -120,7 +120,7 @@ struct CollectionView: View {
                     Spacer()
                     Button { if !list.isEmpty { player.play(list, at: Int.random(in: 0..<list.count), shuffled: true, context: title) } } label: {
                         Image(systemName: "shuffle").font(.title2).foregroundStyle(player.shuffle ? Theme.accentLight : Theme.text).frame(width: 44, height: 44)
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.press)
                     PlayFab(playing: isContext && player.isPlaying) {
                         if isContext { player.toggle() } else if !list.isEmpty { player.play(list, at: 0, shuffled: false, context: title) }
                     }.disabled(list.isEmpty)
@@ -136,7 +136,7 @@ struct CollectionView: View {
                 TrackRow(track: t, number: i + 1, playlistID: playlist?.id) { player.play(list, at: i, shuffled: false, context: title) }
                     .listRowBackground(Color.clear)
                     .swipeActions(edge: .leading) {
-                        Button { player.playNext(t) } label: { Label("Play next", systemImage: "text.insert") }.tint(Theme.accent)
+                        Button { player.playNext(t) } label: { Label("Play next", systemImage: "text.insert") }.tint(Theme.c30hi)
                     }
             }
             .onDelete(perform: deletable ? delete : nil)
@@ -182,8 +182,7 @@ struct CollectionView: View {
                 .overlay(LinearGradient(colors: [.clear, Theme.c60], startPoint: .top, endPoint: .bottom))
                 .ignoresSafeArea()
         } else {
-            LinearGradient(colors: [(kind == .liked ? Theme.likedColor : Theme.downloadsColor).opacity(0.45), .clear],
-                           startPoint: .top, endPoint: .bottom).frame(height: 420).ignoresSafeArea()
+            Color.clear.frame(height: 420)
         }
     }
 
@@ -198,7 +197,7 @@ struct CollectionView: View {
             HStack(spacing: 6) { ProgressView(); Text("\(busy)").font(.footnote).foregroundStyle(Theme.muted) }
         } else {
             Button { downloads.download(missing) } label: { Image(systemName: "arrow.down.circle").font(.title2).frame(width: 40, height: 40) }
-                .buttonStyle(.plain).accessibilityLabel("Download \(missing.count) songs")
+                .buttonStyle(.press).accessibilityLabel("Download \(missing.count) songs")
         }
     }
 

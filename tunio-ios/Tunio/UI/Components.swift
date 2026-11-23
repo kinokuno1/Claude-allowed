@@ -110,12 +110,12 @@ struct TrackRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.press)
             Menu { TrackMenu(track: track, playlistID: playlistID) } label: {
                 Image(systemName: "ellipsis").font(.body.weight(.semibold)).foregroundStyle(Theme.muted)
                     .frame(width: 36, height: 44).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.press)
         }
         .contextMenu { TrackMenu(track: track, playlistID: playlistID) }
     }
@@ -160,7 +160,7 @@ struct PlayFab: View {
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: size, height: size).background(Color.white, in: Circle())
                 .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
-        }.buttonStyle(.plain)
+        }.buttonStyle(.press)
     }
 }
 
@@ -208,5 +208,56 @@ struct AddToPlaylistSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
+    }
+}
+
+
+/// Every button sinks a little while pressed and springs back when let go.
+struct PressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(configuration.isPressed ? .easeOut(duration: 0.09) : .spring(response: 0.3, dampingFraction: 0.5), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == PressStyle {
+    static var press: PressStyle { PressStyle() }
+}
+
+/// An on/off icon: outlined when off, filled when on (always white, no colour change). Icons without a filled
+/// version get a filled white circle behind a dark icon.
+struct ToggleGlyph: View {
+    let on: Bool
+    let icon: String
+    var filled: String? = nil
+    var size: CGFloat = 20
+    var badge: String? = nil
+
+    var body: some View {
+        ZStack {
+            if filled == nil {
+                Circle().fill(Color.white).frame(width: size + 18, height: size + 18).scaleEffect(on ? 1 : 0.3).opacity(on ? 1 : 0)
+            }
+            Image(systemName: on ? (filled ?? icon) : icon).font(.system(size: size, weight: .semibold))
+                .foregroundStyle(on && filled == nil ? Theme.c60 : Theme.text)
+                .contentTransition(.symbolEffect(.replace))
+            if let badge, on {
+                Image(systemName: badge).font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.text).offset(x: size * 0.85, y: -size * 0.8)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: on)
+    }
+}
+
+/// The settings gear: turns a little when tapped.
+struct SpinningGear: View {
+    @State private var turn = 0.0
+    var body: some View {
+        Image(systemName: "gearshape").rotationEffect(.degrees(turn))
+            .simultaneousGesture(TapGesture().onEnded { withAnimation(.spring(response: 0.45, dampingFraction: 0.55)) { turn += 90 } })
     }
 }
