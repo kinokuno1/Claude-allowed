@@ -56,6 +56,7 @@ final class Player: ObservableObject {
             Task { @MainActor in
                 guard let self, self.isPlaying != playing else { return }
                 self.isPlaying = playing
+                self.lastReport = .distantPast // a Jam host reports play / pause right away
                 self.updateNowPlaying()
             }
         })
@@ -72,6 +73,8 @@ final class Player: ObservableObject {
 
     func play(_ tracks: [Track], at start: Int = 0, shuffled: Bool? = nil, context: String? = nil) {
         guard !tracks.isEmpty else { return }
+        // in a Jam, a tapped song joins the shared queue
+        if Jam.shared.active { return Jam.shared.add([tracks[min(max(start, 0), tracks.count - 1)]]) }
         let sh = shuffled ?? shuffle
         shuffle = sh
         self.context = context
@@ -88,32 +91,45 @@ final class Player: ObservableObject {
     }
 
     func playNext(_ t: Track) {
+        if Jam.shared.active { return Jam.shared.add([t], next: true) }
         guard current != nil else { return play([t]) }
         queue.insert(t, at: index + 1)
         message = "Plays next: \(t.title)"
     }
 
     func addToQueue(_ t: Track) {
+        if Jam.shared.active { return Jam.shared.add([t]) }
         guard current != nil else { return play([t]) }
         queue.append(t)
         message = "Added to queue: \(t.title)"
     }
 
     func removeFromQueue(at i: Int) {
+        if let s = Jam.shared.state { if s.queue.indices.contains(i) { Jam.shared.remove(s.queue[i].qid) }; return }
         guard queue.indices.contains(i), i != index else { return }
         queue.remove(at: i)
         if i < index { index -= 1 }
     }
 
     func moveUpNext(from: IndexSet, to: Int) {
+        if let s = Jam.shared.state, let f = from.first {
+            let next = s.upNext
+            guard next.indices.contains(f) else { return }
+            Jam.shared.move(next[f].qid, to: s.index + 1 + (to > f ? to - 1 : to))
+            return
+        }
         var next = upNext
         next.move(fromOffsets: from, toOffset: to)
         queue = Array(queue[...index]) + next
     }
 
-    func jump(to i: Int) { if queue.indices.contains(i) { load(i) } }
+    func jump(to i: Int) {
+        if let s = Jam.shared.state { if s.queue.indices.contains(i) { Jam.shared.jump(s.queue[i].qid) }; return }
+        if queue.indices.contains(i) { load(i) }
+    }
 
     func toggle() {
+        if let s = Jam.shared.state { return Jam.shared.setPlaying(!s.playing) }
         guard current != nil, !isLoading else { return }
         if player.currentItem == nil { return load(index) }
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -121,6 +137,11 @@ final class Player: ObservableObject {
     }
 
     func next(auto: Bool = false) {
+        if let s = Jam.shared.state {
+            // a song ended: the host moves the Jam on (once); guests playing along wait for it
+            if !auto { Jam.shared.next() } else if Jam.shared.isHost, let q = s.current?.qid { Jam.shared.next(from: q) }
+            return
+        }
         guard !queue.isEmpty else { return }
         if auto && repeatMode == .one { seek(to: 0); player.play(); return }
         if index + 1 < queue.count { load(index + 1) }
@@ -129,10 +150,15 @@ final class Player: ObservableObject {
     }
 
     func previous() {
+        if Jam.shared.active { return Jam.shared.previous() }
         if Clock.shared.time > 3 || index <= 0 { seek(to: 0) } else { load(index - 1) }
     }
 
     func seek(to seconds: Double) {
+        if Jam.shared.active {
+            Jam.shared.seek(seconds)
+            if !Jam.shared.playsHere { return }
+        }
         player.seek(to: CMTime(seconds: max(0, seconds), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         Clock.shared.time = seconds
         updateNowPlaying()
@@ -154,7 +180,7 @@ final class Player: ObservableObject {
 
     // MARK: loading
 
-    private func load(_ i: Int, allowHomeServer: Bool = true) {
+    private func load(_ i: Int, allowHomeServer: Bool = true, startAt: Double = 0) {
         index = i
         guard let t = current else { return }
         loadTask?.cancel()
@@ -167,7 +193,16 @@ final class Player: ObservableObject {
             guard let self else { return }
             do {
                 if !allowHomeServer { HomeServer.shared.markDown() }
-                let (audio, matched) = try await Engine.audio(for: t)
+                let audio: Engine.Audio
+                let matched: Track
+                if Downloads.shared.file(for: t) == nil, let u = Jam.shared.audioURL(for: t) {
+                    audio = .remote(u, headers: [:]) // playing along: the Jam's server fetched it ahead
+                    matched = t
+                } else {
+                    let r = try await Engine.audio(for: t)
+                    audio = r.0
+                    matched = r.1
+                }
                 guard !Task.isCancelled, self.current?.id == t.id else { return }
                 if matched != t, self.queue.indices.contains(self.index) { self.queue[self.index] = matched }
                 let item: AVPlayerItem
@@ -181,7 +216,8 @@ final class Player: ObservableObject {
                 self.watch(item, track: matched)
                 try? AVAudioSession.sharedInstance().setActive(true)
                 self.player.replaceCurrentItem(with: item)
-                self.player.play()
+                if startAt > 0.5 { _ = await self.player.seek(to: CMTime(seconds: startAt, preferredTimescale: 600)) }
+                if let s = Jam.shared.state, !s.playing { self.player.pause() } else { self.player.play() }
                 self.failures = 0
                 Library.shared.addRecent(matched)
                 self.isLoading = false
@@ -198,6 +234,10 @@ final class Player: ObservableObject {
     private func failed(_ t: Track, _ why: String) {
         failures += 1
         message = "Couldn't play “\(t.title)”: \(why)"
+        if Jam.shared.active { // the host skips it for everyone
+            if Jam.shared.isHost, let q = Jam.shared.state?.current?.qid { Jam.shared.next(from: q) }
+            return
+        }
         if failures < 3, index + 1 < queue.count { load(index + 1) }
     }
 
@@ -225,7 +265,7 @@ final class Player: ObservableObject {
     private func afterTrackChange() {
         guard let t = current else { return }
         let autoplay = UserDefaults.standard.object(forKey: "autoplay") as? Bool ?? true
-        if autoplay, queue.count - index - 1 <= 3, repeatMode == .off, !autoplayBusy {
+        if autoplay, !Jam.shared.active, queue.count - index - 1 <= 3, repeatMode == .off, !autoplayBusy {
             autoplayBusy = true
             Task {
                 let exclude = Set(queue.map(\.id) + Library.shared.recent.prefix(30))
@@ -241,10 +281,79 @@ final class Player: ObservableObject {
 
     /// Gets the next song's audio link ready, so it starts instantly.
     private func warmNext() {
-        guard index + 1 < queue.count else { return }
+        guard index + 1 < queue.count, !(Jam.shared.active && !Jam.shared.isHost) else { return }
         let next = queue[index + 1]
         if HomeServer.shared.usable, let target = next.playTarget { HomeServer.shared.warm([target]) }
         Task.detached(priority: .utility) { _ = try? await Engine.audio(for: next) }
+    }
+
+    // MARK: Jam
+
+    private var lastReport = Date.distantPast
+    private var lastCorrection = Date.distantPast
+    private var jamTicker: Task<Void, Never>?
+
+    /// Follows the Jam's shared queue: the host's phone, or a guest playing along.
+    func followJam(_ old: JamState?, _ new: JamState?) {
+        let jam = Jam.shared
+        if jamTicker == nil, new != nil { startJamTicker() }
+        guard let new, jam.playsHere else {
+            // a guest joined (the music plays on the host's phone), or left: this phone goes quiet
+            let guestJoined = new != nil && old == nil
+            let guestLeft = new == nil && old != nil && old?.you?.host != true
+            if guestJoined || guestLeft { player.pause() }
+            return
+        }
+        guard let cur = new.current else { player.pause(); return }
+        let wasID = current?.id
+        let loaded = player.currentItem != nil || isLoading
+        queue = new.queue.map(\.track)
+        context = "Jam · \(new.name)"
+        let expected = jam.expectedPosition(new)
+        if wasID == cur.id && loaded {
+            index = new.index
+            if !isLoading, abs(currentTime - expected) > (jam.isHost ? 2.5 : 1.2) {
+                player.seek(to: CMTime(seconds: expected, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+            if !isLoading {
+                if new.playing, player.timeControlStatus == .paused { try? AVAudioSession.sharedInstance().setActive(true); player.play() }
+                if !new.playing, player.timeControlStatus != .paused { player.pause() }
+            }
+        } else {
+            load(new.index, startAt: expected)
+        }
+    }
+
+    /// A guest turned "play on this phone too" on or off.
+    func jamPlayAlongChanged(_ on: Bool) {
+        if on { followJam(nil, Jam.shared.state) } else if Jam.shared.active && !Jam.shared.isHost { player.pause() }
+    }
+
+    /// Every second: the host tells the Jam where it really is; guests playing along fix their drift.
+    private func startJamTicker() {
+        jamTicker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                self?.jamTick()
+            }
+        }
+    }
+
+    private func jamTick() {
+        let jam = Jam.shared
+        guard let s = jam.state, jam.playsHere, let cur = s.current, current?.id == cur.id, !isLoading else { return }
+        if jam.isHost {
+            if Date().timeIntervalSince(lastReport) > 10 {
+                lastReport = Date()
+                jam.report(qid: cur.qid, position: currentTime, playing: player.timeControlStatus != .paused)
+            }
+        } else if s.playing, player.timeControlStatus == .playing, Date().timeIntervalSince(lastCorrection) > 3 {
+            let expected = jam.expectedPosition(s)
+            if abs(currentTime - expected) > 0.35 {
+                lastCorrection = Date()
+                player.seek(to: CMTime(seconds: expected, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+        }
     }
 
     // MARK: lock screen

@@ -135,6 +135,7 @@ struct PlayerView: View {
                 Label("Home server", systemImage: "server.rack").font(.caption).foregroundStyle(Theme.muted)
             }
             Spacer()
+            JamButton()
             panelButton(.queue, "list.bullet", "Queue")
         }.padding(.top, 4)
     }

@@ -24,6 +24,7 @@ struct RootView: View {
     @ObservedObject private var downloads = Downloads.shared
     @State private var tab = 0
     @AppStorage("onboarded") private var onboarded = false
+    @ObservedObject private var jam = Jam.shared
 
     var body: some View {
         TabView(selection: $tab) {
@@ -40,6 +41,7 @@ struct RootView: View {
         .background(Theme.c60)
         .overlay { if !onboarded { OnboardingView().transition(.opacity) } }
         .fullScreenCover(isPresented: $ui.showPlayer) { PlayerView() }
+        .sheet(isPresented: $jam.showSheet) { JamView() }
         .sheet(isPresented: Binding(get: { ui.addToPlaylist != nil }, set: { if !$0 { ui.addToPlaylist = nil } })) {
             AddToPlaylistSheet(tracks: ui.addToPlaylist ?? []).presentationDetents([.medium, .large])
         }
@@ -60,6 +62,10 @@ struct RootView: View {
         guard url.scheme == "tunio" else { return }
         let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value ?? ""
         switch url.host {
+        case "jam":
+            // a shared Jam link: tunio://jam?u=<server>&j=<id>
+            ui.showPlayer = false
+            if let l = Jam.parseLink(url.absoluteString) { Task { await Jam.shared.openLink(server: l.server, id: l.id) } }
         case "pair":
             HomeServer.shared.pair(url)
             ui.toast = "Home server added"
@@ -80,7 +86,11 @@ struct RootView: View {
     }
 
     @ViewBuilder private var mini: some View {
-        if player.current != nil { MiniPlayer().padding(.horizontal, 8).padding(.bottom, 4) }
+        VStack(spacing: 6) {
+            JamBar()
+            if player.current != nil && (!jam.active || jam.playsHere) { MiniPlayer() }
+        }
+        .padding(.horizontal, 8).padding(.bottom, 4)
     }
 
     @ViewBuilder private var toast: some View {

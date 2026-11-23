@@ -129,8 +129,9 @@ struct TrackMenu: View {
     @EnvironmentObject private var ui: UIState
 
     var body: some View {
-        Button { Player.shared.playNext(track) } label: { Label("Play next", systemImage: "text.insert") }
-        Button { Player.shared.addToQueue(track) } label: { Label("Add to queue", systemImage: "text.append") }
+        let inJam = Jam.shared.active
+        Button { Player.shared.playNext(track) } label: { Label(inJam ? "Play next in the Jam" : "Play next", systemImage: "text.insert") }
+        Button { Player.shared.addToQueue(track) } label: { Label(inJam ? "Add to the Jam" : "Add to queue", systemImage: inJam ? "person.2.wave.2" : "text.append") }
         Divider()
         Button { library.toggleLike(track) } label: {
             Label(library.isLiked(track) ? "Remove from Liked songs" : "Save to Liked songs", systemImage: library.isLiked(track) ? "heart.slash" : "heart")
