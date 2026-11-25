@@ -1,0 +1,74 @@
+name: Build Tunio home server
+
+on:
+  push:
+    paths:
+      - 'tunio-desktop/**'
+      - '.github/workflows/build-tunio-server.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # 64-bit ARM Linux, like a Raspberry Pi 5 running Raspberry Pi OS.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit tests
+        working-directory: tunio-desktop
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -q pytest "yt-dlp[default]"
+          /tmp/venv/bin/python -m pytest -q tests
+
+      - name: Install exactly like on a Pi (the installer, systemd service, Deno)
+        run: sudo bash tunio-desktop/server/install-tunio-server.sh
+
+      - name: Server answers and needs the password
+        run: |
+          PW=$(sudo python3 -c "import json; print(json.load(open('/var/lib/tunio/server.json'))['password'])")
+          curl -fsS http://127.0.0.1:8484/api/hello; echo
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8484/api/ping)" = 401
+          curl -fsS -H "Authorization: Bearer $PW" http://127.0.0.1:8484/api/ping; echo
+          systemctl is-active tunio-server
+          ls -la /opt/tunio-server/bin
+
+      - name: Real sites (informational; YouTube often blocks GitHub's servers, a home Pi isn't blocked)
+        continue-on-error: true
+        run: |
+          PW=$(sudo python3 -c "import json; print(json.load(open('/var/lib/tunio/server.json'))['password'])")
+          curl -fsS -m 120 -H "Authorization: Bearer $PW" -H 'Content-Type: application/json' \
+            -d '{"url":"ytsearch3:daft punk get lucky"}' http://127.0.0.1:8484/api/flat | head -c 400; echo
+          curl -sS -m 180 -H "Authorization: Bearer $PW" -r 0-99999 -o /tmp/part.bin -D - \
+            "http://127.0.0.1:8484/audio?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D5NV6Rdv1a3I" || true
+          head -c 400 /tmp/part.bin | file - ; head -c 300 /tmp/part.bin | grep -a error || true
+          ls -la /tmp/part.bin
+          sudo journalctl -u tunio-server --no-pager | tail -20
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          tar --exclude='__pycache__' -czf dist/tunio-server.tar.gz -C tunio-desktop tunio_desktop
+          cp tunio-desktop/server/install-tunio-server.sh dist/
+          ls -la dist
+
+      - name: Publish to the tunio-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tunio-latest
+          name: Tunio (latest build)
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Latest Tunio build from commit ${{ github.sha }}.
+            **Android:** download **Tunio-arm64.apk** (almost every phone since 2017). If it won't install, use Tunio-universal.apk.
+            **iPhone / iPad:** download **Tunio.ipa** and install it with iloader (guide: tunio-ios/README.md).
+            **Windows 10/11:** download **Tunio.exe** and double-click it. Windows may say "Windows protected your PC" because the app isn't signed: click *More info*, then *Run anyway*.
+            **Home server (Raspberry Pi):** on the Pi, run `curl -fsSL https://github.com/kinokuno1/Claude-allowed/releases/download/tunio-latest/install-tunio-server.sh | sudo bash` (setup guide: tunio-desktop/server/README.md).
+          files: |
+            dist/tunio-server.tar.gz
+            dist/install-tunio-server.sh

@@ -1,0 +1,87 @@
+name: Build Tunio for Windows
+
+on:
+  push:
+    paths:
+      - 'tunio-desktop/**'
+      - '.github/workflows/build-tunio-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tunio-desktop
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pillow pytest
+
+      - name: Unit tests
+        run: python -m pytest -q tests
+
+      - name: UI scripts parse (as the browser loads them, as modules)
+        run: |
+          foreach ($f in "tunio_desktop/web/app.js", "tunio_desktop/web/mini.js", "tunio_desktop/web/icons.js") {
+            Get-Content $f -Raw | node --input-type=module --check
+            if ($LASTEXITCODE -ne 0) { throw "$f has a syntax error" }
+          }
+
+      - name: Engine check against the real sites (informational)
+        continue-on-error: true
+        run: |
+          python -c "from tunio_desktop import engine; engine.ensure_deno(); print('yt-dlp', engine.version(), 'deno', engine._bundled('deno'))"
+          python -c "from tunio_desktop import engine; r=engine.search('YOUTUBE','daft punk get lucky',3); print([t.title for t in r]); s=engine.stream(r[0].url); print('stream ok' if s else 'no stream')"
+
+      - name: Icon
+        run: |
+          New-Item -ItemType Directory -Force bin | Out-Null
+          python tools/make_icon.py bin/tunio.ico
+
+      - name: Build Tunio.exe
+        run: >
+          pyinstaller --noconfirm --clean --onefile --windowed --name Tunio
+          --icon bin/tunio.ico
+          --add-data "tunio_desktop/web;tunio_desktop/web"
+          --collect-data yt_dlp_ejs
+          --collect-submodules yt_dlp
+          --hidden-import webview.platforms.edgechromium
+          run_tunio.py
+
+      - name: Smoke test (exe starts its engine and serves the UI)
+        run: |
+          $env:TUNIO_BROWSER = ""
+          python -c "from tunio_desktop import server; h,u=server.start(); import urllib.request; print(urllib.request.urlopen(u).status)"
+          Get-Item dist/Tunio.exe | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tunio-Windows
+          path: tunio-desktop/dist/Tunio.exe
+
+      - name: Publish to the tunio-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tunio-latest
+          name: Tunio (latest build)
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Latest Tunio build from commit ${{ github.sha }}.
+            **Android:** download **Tunio-arm64.apk** (almost every phone since 2017). If it won't install, use Tunio-universal.apk.
+            **iPhone / iPad:** download **Tunio.ipa** and install it with iloader (guide: tunio-ios/README.md).
+            **Windows 10/11:** download **Tunio.exe** and double-click it. Windows may say "Windows protected your PC" because the app isn't signed: click *More info*, then *Run anyway*.
+            **Home server (Raspberry Pi):** on the Pi, run `curl -fsSL https://github.com/kinokuno1/Claude-allowed/releases/download/tunio-latest/install-tunio-server.sh | sudo bash` (setup guide: tunio-desktop/server/README.md).
+          files: tunio-desktop/dist/Tunio.exe

@@ -1,0 +1,118 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+android {
+    namespace = "ch.tunio.app"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "ch.tunio.app"
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
+    }
+
+    // One APK per CPU type (much smaller) plus a universal one that runs everywhere.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
+    // Same key for every build so a new version installs over the old one without losing the library.
+    signingConfigs {
+        create("shared") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("shared")
+        }
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("shared")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    packaging {
+        // yt-dlp's bundled Python/ffmpeg are executed from the native lib dir, so they must be extracted.
+        jniLibs.useLegacyPackaging = true
+        resources.excludes += setOf(
+            "/META-INF/{AL2.0,LGPL2.1}",
+            "/META-INF/LICENSE*",
+            "/META-INF/NOTICE*",
+            "/META-INF/DEPENDENCIES",
+        )
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+dependencies {
+    // Compose 1.10 is what the Backdrop (liquid glass) library is built against.
+    implementation("androidx.compose.ui:ui:1.10.3")
+    implementation("androidx.compose.foundation:foundation:1.10.3")
+    implementation("androidx.compose.material3:material3:1.4.0")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
+
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-session:1.5.1")
+    implementation("androidx.media3:media3-datasource:1.5.1")
+    implementation("androidx.media3:media3-database:1.5.1")
+
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    // In-app QR scanner for pairing the home server: CameraX preview + ML Kit (bundled model, works without Play services).
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("androidx.camera:camera-mlkit-vision:1.4.2")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // Liquid glass: refracts (lens), blurs and tints what's behind it (Kyant0/AndroidLiquidGlass).
+    // Refraction needs Android 13+, blur Android 12+; older phones get a frosted fallback.
+    implementation("io.github.kyant0:backdrop:1.0.6")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+
+    // yt-dlp + Python + QuickJS + ffmpeg packaged for Android (the engine behind the Seal app).
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
+
+    testImplementation("junit:junit:4.13.2")
+}

@@ -3,3 +3,9 @@ build/
 local.properties
 *.iml
 .idea/
+__pycache__/
+*.pyc
+tunio-ios/Tunio.xcodeproj/
+tunio-ios/build/
+tunio-ios/ipa/
+tunio-ios/*.ipa

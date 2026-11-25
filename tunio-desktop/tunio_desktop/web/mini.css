@@ -1,0 +1,80 @@
+/* Tunio mini player: a small window that stays on top. Its layout follows the window's shape:
+   a strip when it's wide and low, the cover with controls under it when it's square or tall. */
+:root { --bg: #0E0E12; --text: #F7F7FA; --muted: #B5B3C2; --pink: #FFA8D8; --accent: #C9B6FF; color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); user-select: none;
+  font: 13px/1.3 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+svg { width: 22px; height: 22px; fill: currentColor; }
+
+#mini { position: relative; height: 100%; display: grid; align-items: center; gap: 12px; padding: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "cover info ctrls"; }
+.bg { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
+.bg img { position: absolute; inset: -30%; width: 160%; height: 160%; object-fit: cover; filter: blur(40px) saturate(1.4); opacity: .45; }
+.bg::after { content: ""; position: absolute; inset: 0; background: rgba(14,14,18,.45); }
+.bg img:not([src]), .cover img:not([src]) { display: none; }
+.cover { grid-area: cover; position: relative; z-index: 1; height: calc(100vh - 20px); aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #252231;
+  box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.info { grid-area: info; position: relative; z-index: 1; min-width: 0; }
+.t { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.a { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.prog { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); position: relative; cursor: pointer; }
+.bar::before { content: ""; position: absolute; inset: -8px 0; }
+.bar i { display: block; height: 100%; width: 0; border-radius: 2px; background: #fff; }
+.bar:hover i { background: var(--accent); }
+.ctrls { grid-area: ctrls; position: relative; z-index: 1; display: flex; align-items: center; gap: 4px; }
+.ctrls button { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--text); }
+.ctrls button:hover { background: rgba(255,255,255,.1); }
+.ctrls button.main { width: 40px; height: 40px; background: #fff; color: #111; }
+.ctrls button.main:hover { background: #fff; transform: scale(1.06); }
+.win { position: absolute; z-index: 3; top: 4px; right: 4px; display: flex; gap: 2px; opacity: 0; transition: opacity .2s; }
+#mini:hover .win { opacity: 1; }
+.win button { width: 26px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: rgba(14,14,18,.6); }
+.win button:hover { background: rgba(255,255,255,.18); }
+.win button.close:hover { background: #C42B1C; }
+.win svg { width: 13px; height: 13px; }
+.win .close svg { width: 9px; height: 9px; fill: none; stroke: currentColor; stroke-width: 1.3; }
+#mini.empty .prog, #mini.empty .ctrls { visibility: hidden; }
+
+/* narrow strip: only play/pause */
+@media (max-width: 300px) and (max-height: 160px) { #prev, #next, #like, .prog { display: none !important; } }
+/* tiny height: no progress row */
+@media (max-height: 92px) { .prog { display: none; } }
+/* square or tall: cover on top, then title, progress and controls */
+@media (min-height: 161px) {
+  #mini { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto auto; grid-template-areas: "cover" "info" "ctrls";
+    justify-items: center; padding: 14px; gap: 10px; }
+  .cover { height: auto; width: auto; max-width: 100%; max-height: 100%; aspect-ratio: 1; align-self: stretch; }
+  .info { width: 100%; text-align: center; }
+  .ctrls { gap: 10px; }
+  .ctrls button.main { width: 48px; height: 48px; }
+}
+/* tall with little width: cover fills, controls float over it */
+@media (min-height: 161px) and (max-width: 220px) { .info .a { display: none; } }
+
+/* resize edges */
+#edges i { position: fixed; z-index: 10; }
+#edges [data-e="n"] { top: 0; left: 8px; right: 70px; height: 4px; cursor: ns-resize; }
+#edges [data-e="s"] { bottom: 0; left: 8px; right: 8px; height: 4px; cursor: ns-resize; }
+#edges [data-e="w"] { left: 0; top: 8px; bottom: 8px; width: 4px; cursor: ew-resize; }
+#edges [data-e="e"] { right: 0; top: 30px; bottom: 8px; width: 4px; cursor: ew-resize; }
+#edges [data-e="nw"] { left: 0; top: 0; width: 8px; height: 8px; cursor: nwse-resize; }
+#edges [data-e="ne"] { right: 0; top: 0; width: 4px; height: 4px; cursor: nesw-resize; }
+#edges [data-e="sw"] { left: 0; bottom: 0; width: 8px; height: 8px; cursor: nesw-resize; }
+#edges [data-e="se"] { right: 0; bottom: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+
+/* play/pause morph and the like heart (same as the main window) */
+.ppi path { fill: currentColor; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; transition: d .32s cubic-bezier(.5, 0, .2, 1); }
+.ppi .pa { d: path("M8 5.2L13.5 8.7L13.5 15.3L8 18.8Z"); }
+.ppi .pb { d: path("M13.5 8.7L18.6 12L18.6 12L13.5 15.3Z"); }
+.ppi.pause .pa { d: path("M6.5 5.5L10.2 5.5L10.2 18.5L6.5 18.5Z"); }
+.ppi.pause .pb { d: path("M13.8 5.5L17.5 5.5L17.5 18.5L13.8 18.5Z"); }
+.heart { overflow: visible; }
+.heart .ho { fill: currentColor; }
+.heart .hf { fill: var(--pink); clip-path: inset(100% 0 0 0); transition: clip-path .42s cubic-bezier(.45, 0, .2, 1); }
+.heart.on .hf { clip-path: inset(0 0 0 0); }
+.heart.on .ho { fill: var(--pink); }
+.heart.on { animation: pop .45s cubic-bezier(.3, 1.7, .5, 1) .3s; }
+@keyframes pop { 40% { transform: scale(1.3); } }
